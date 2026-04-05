@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cmd /c \"netsh interface ipv4 show excludedportrange protocol=tcp 2>&1\")",
+      "Bash(cmd /c \"netsh int ipv4 show excludedportrange protocol=tcp\")",
+      "Bash(curl -s http://localhost:8001/health)",
+      "Bash(kill %1)",
+      "Bash(cmd /c \"wmic process where \\\\\"ExecutablePath like '%pythoncore%'\\\\\" get ProcessId,CommandLine\")",
+      "Bash(cmd /c \"for /f \\\\\"tokens=5\\\\\" %a in \\('netstat -aon ^| findstr :8001'\\) do taskkill /F /PID %a\")",
+      "Bash(cmd /c \"wmic process where \\\\\"name='python.exe'\\\\\" get ProcessId,CommandLine 2>nul\")",
+      "Bash(cmd /c \"wmic process where \\\\\"name='pythoncore-3.14-64.exe'\\\\\" get ProcessId 2>nul\")",
+      "Bash(cmd /c \"wmic process get ProcessId,ExecutablePath,CommandLine 2>nul | findstr /i \\\\\"python uvicorn\\\\\"\")",
+      "Bash(cmd /c \"tasklist /FO CSV 2>nul | findstr /i python\")"
+    ]
+  }
+}

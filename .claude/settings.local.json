@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run:*)",
+      "Bash(cmd /c \"cd /d d:\\\\Agent_APPs\\\\ai-job-assistant-api\\\\frontend && npm run build 2>&1\")",
+      "Bash(cmd /c \"cd /d d:\\\\Agent_APPs\\\\ai-job-assistant-api\\\\frontend && npx tsc --noEmit 2>&1\")",
+      "Bash(cmd /c \"cd /d d:\\\\Agent_APPs\\\\ai-job-assistant-api\\\\frontend && npx vite build\")",
+      "Bash(echo \"exit: $?\")",
+      "Bash(taskkill /F /IM python.exe)"
+    ]
+  }
+}
