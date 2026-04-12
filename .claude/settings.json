@@ -10,7 +10,10 @@
       "Bash(cmd /c \"wmic process where \\\\\"name='python.exe'\\\\\" get ProcessId,CommandLine 2>nul\")",
       "Bash(cmd /c \"wmic process where \\\\\"name='pythoncore-3.14-64.exe'\\\\\" get ProcessId 2>nul\")",
       "Bash(cmd /c \"wmic process get ProcessId,ExecutablePath,CommandLine 2>nul | findstr /i \\\\\"python uvicorn\\\\\"\")",
-      "Bash(cmd /c \"tasklist /FO CSV 2>nul | findstr /i python\")"
+      "Bash(cmd /c \"tasklist /FO CSV 2>nul | findstr /i python\")",
+      "Bash(curl -s http://localhost:8001/api/resumes)",
+      "Bash(curl -s http://localhost:8001/)",
+      "Bash(curl -s http://localhost:8001/api/resumes -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiZXhwIjoxNzc1NzQwODI4fQ.6qdlZarsgLuQYvxt2ot7iAbCQTHKcuCI3NZO8FQo398')"
     ]
   },
   "hooks": {

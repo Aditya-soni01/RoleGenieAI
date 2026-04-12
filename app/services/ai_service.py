@@ -20,8 +20,8 @@ class AIService:
         Args:
             api_key: Anthropic API key for Claude access
         """
-        self.client = Anthropic()
-        self.model = "claude-3-5-sonnet-20241022"
+        self.client = Anthropic(api_key=api_key) if api_key else Anthropic()
+        self.model = "claude-sonnet-4-6"
         self.conversation_history: List[Dict[str, str]] = []
 
     def _add_to_history(self, role: str, content: str) -> None:
@@ -482,6 +482,204 @@ Extract all identifiable information. Use null for missing fields."""
         except Exception as e:
             logger.error(f"Error extracting resume data: {e}")
             return {"status": "error", "message": str(e)}
+
+    def analyze_resume_job_fit(
+        self,
+        resume_text: str,
+        job_title: str,
+        company_name: str,
+        job_description: str,
+        required_skills: str = "",
+    ) -> Dict[str, Any]:
+        """
+        Stage 1 of the two-stage optimization pipeline.
+        Analyzes resume against job description and returns structured fit analysis.
+        """
+        self._clear_history()
+
+        prompt = f"""You are an expert resume analyst and ATS specialist. Perform a detailed analysis of the resume against the job description.
+
+RESUME TEXT:
+{resume_text}
+
+JOB TITLE: {job_title}
+COMPANY: {company_name}
+JOB DESCRIPTION:
+{job_description}
+REQUIRED SKILLS: {required_skills}
+
+Analyze and return ONLY a JSON object with these exact keys:
+{{
+  "candidate_name": "extracted full name",
+  "candidate_email": "extracted email or empty string",
+  "candidate_phone": "extracted phone or empty string",
+  "candidate_location": "extracted location or empty string",
+  "linkedin_url": "extracted linkedin URL or empty string",
+  "portfolio_url": "extracted portfolio/github URL or empty string",
+
+  "matched_hard_skills": ["skill1", "skill2"],
+  "matched_soft_skills": ["skill1", "skill2"],
+  "missing_critical_skills": ["skill1", "skill2"],
+  "missing_nice_to_have_skills": ["skill1", "skill2"],
+  "transferable_skills": ["skill that maps to a required skill"],
+
+  "experience_entries": [
+    {{
+      "original_title": "what the resume says",
+      "company": "company name",
+      "duration": "date range",
+      "relevance_score": 85,
+      "relevant_keywords_found": ["keyword1", "keyword2"],
+      "suggested_reorder_priority": 1
+    }}
+  ],
+
+  "education_entries": [
+    {{"degree": "", "institution": "", "year": "", "relevant_coursework": []}}
+  ],
+
+  "certifications": ["cert1", "cert2"],
+  "projects": [{{"name": "", "description": "", "technologies": []}}],
+
+  "ats_score_before": 42,
+  "gap_analysis": "2-3 sentence summary of gaps between resume and job",
+  "reorder_strategy": "brief explanation of how to restructure for maximum impact"
+}}"""
+
+        try:
+            response = self.client.messages.create(
+                model=self.model,
+                max_tokens=2500,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            response_text = response.content[0].text
+
+            if "```json" in response_text:
+                response_text = response_text.split("```json")[1].split("```")[0]
+            elif "```" in response_text:
+                response_text = response_text.split("```")[1].split("```")[0]
+
+            json_start = response_text.find("{")
+            json_end = response_text.rfind("}") + 1
+            if json_start == -1 or json_end <= json_start:
+                raise ValueError("No JSON object found in Stage 1 response")
+
+            return json.loads(response_text[json_start:json_end])
+
+        except Exception as e:
+            logger.error(f"Stage 1 analysis error: {e}")
+            raise
+
+    def generate_optimized_resume(
+        self,
+        resume_text: str,
+        analysis: Dict[str, Any],
+        job_title: str,
+        company_name: str,
+        job_description: str,
+    ) -> Dict[str, Any]:
+        """
+        Stage 2 of the two-stage optimization pipeline.
+        Uses Stage 1 analysis as context to fully rewrite the resume.
+        """
+        stage_1_json = json.dumps(analysis, indent=2)
+
+        prompt = f"""You are an expert resume writer who creates ATS-optimized, achievement-focused resumes. Using the analysis below, rewrite the resume to be perfectly tailored for the target role.
+
+ANALYSIS FROM STAGE 1:
+{stage_1_json}
+
+ORIGINAL RESUME:
+{resume_text}
+
+TARGET JOB: {job_title} at {company_name}
+JOB DESCRIPTION: {job_description}
+
+REWRITING RULES:
+1. Professional Summary: Write 3-4 sentences highlighting the most relevant experience and skills for THIS specific role. Front-load with the job title and years of experience. Include 3-5 keywords from the job description naturally.
+
+2. Skills Section: Organize into "Technical Skills" and "Professional Skills". Lead with skills that match the job description. Include transferable skills mapped to JD terminology. Use the EXACT skill names from the job description where the candidate has equivalent skills (e.g., if JD says "CI/CD" and resume says "Azure DevOps pipelines", use BOTH).
+
+3. Experience Section: Rewrite each bullet point using the STAR method (Situation, Task, Action, Result). Lead each bullet with a strong action verb. Quantify achievements wherever possible (%, $, time saved, team size). Reorder bullet points within each role to put the most JD-relevant achievements first. Reorder the experience entries based on relevance to the target role.
+
+4. Education & Certifications: Highlight relevant coursework, projects, or thesis topics.
+
+5. ATS Optimization: Use standard section headings. Mirror the job description's exact terminology. Include both spelled-out and abbreviated forms of technical terms.
+
+Return ONLY a JSON object — no extra text, no markdown fences:
+{{
+  "full_name": "",
+  "contact": {{
+    "email": "",
+    "phone": "",
+    "location": "",
+    "linkedin": "",
+    "portfolio": ""
+  }},
+  "professional_summary": "The rewritten 3-4 sentence summary",
+  "technical_skills": ["skill1", "skill2"],
+  "professional_skills": ["skill1", "skill2"],
+  "experience": [
+    {{
+      "title": "optimized job title",
+      "company": "",
+      "location": "",
+      "duration": "Mon YYYY - Mon YYYY",
+      "bullets": [
+        "STAR-method achievement bullet 1",
+        "STAR-method achievement bullet 2",
+        "STAR-method achievement bullet 3"
+      ]
+    }}
+  ],
+  "education": [
+    {{
+      "degree": "",
+      "institution": "",
+      "year": "",
+      "details": "relevant coursework, GPA, honors if applicable"
+    }}
+  ],
+  "certifications": ["cert1", "cert2"],
+  "projects": [
+    {{
+      "name": "",
+      "technologies": "tech1, tech2",
+      "bullets": ["what it does, achievement"]
+    }}
+  ],
+  "ats_score_after": 87,
+  "keywords_added": ["keyword1", "keyword2"],
+  "key_improvements": [
+    "Specific improvement 1",
+    "Specific improvement 2",
+    "Specific improvement 3"
+  ]
+}}"""
+
+        try:
+            response = self.client.messages.create(
+                model=self.model,
+                max_tokens=4000,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            response_text = response.content[0].text
+
+            if "```json" in response_text:
+                response_text = response_text.split("```json")[1].split("```")[0]
+            elif "```" in response_text:
+                response_text = response_text.split("```")[1].split("```")[0]
+
+            json_start = response_text.find("{")
+            json_end = response_text.rfind("}") + 1
+            if json_start == -1 or json_end <= json_start:
+                raise ValueError("No JSON object found in Stage 2 response")
+
+            return json.loads(response_text[json_start:json_end])
+
+        except Exception as e:
+            logger.error(f"Stage 2 generation error: {e}")
+            raise
 
     def interview_prep(
         self,

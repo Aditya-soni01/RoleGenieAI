@@ -21,7 +21,14 @@ class UserUpdate(BaseModel):
     """Schema for updating user information."""
     first_name: Optional[str] = Field(None, min_length=1, max_length=100)
     last_name: Optional[str] = Field(None, min_length=1, max_length=100)
+    username: Optional[str] = Field(None, min_length=3, max_length=50)
     skills: Optional[List[str]] = Field(None, description="Updated list of professional skills")
+
+
+class PasswordChange(BaseModel):
+    """Schema for changing user password."""
+    current_password: str
+    new_password: str = Field(..., min_length=8, max_length=255)
 
 
 class UserResponse(UserBase):

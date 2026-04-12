@@ -1,3 +1,72 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background-color: #051424;
+    color: #d4e4fa;
+    font-family: 'Inter', sans-serif;
+  }
+
+  ::selection {
+    background-color: rgba(208, 188, 255, 0.3);
+    color: #d0bcff;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: #051424;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #273647;
+    border-radius: 10px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #494454;
+  }
+}
+
+@layer utilities {
+  .genie-gradient {
+    background: linear-gradient(135deg, #d0bcff 0%, #4edea3 100%);
+  }
+
+  .genie-gradient-text {
+    background: linear-gradient(135deg, #d0bcff 0%, #4edea3 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .glass-card {
+    background: rgba(39, 54, 71, 0.6);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+
+  .glass-panel {
+    background: rgba(39, 54, 71, 0.4);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  .ghost-border {
+    outline: 1px solid rgba(73, 68, 84, 0.25);
+  }
+
+  .mono-label {
+    font-family: 'Berkeley Mono', monospace;
+  }
+}

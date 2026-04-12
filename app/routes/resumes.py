@@ -14,10 +14,11 @@ from app.services.job_service import JobService
 from app.services.auth_service import get_current_user
 from app.services.ai_service import AIService
 from app.models.user import User
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-ai_service = AIService(api_key="")
+ai_service = AIService(api_key=settings.anthropic_api_key)
 
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
 
@@ -263,6 +264,58 @@ def _build_pdf(data: Dict[str, Any]) -> bytes:
     return buf.getvalue()
 
 
+# ─── Data normalizer (handles old flat format and new {analysis, optimized} format) ──
+
+def _normalize_data(raw: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert either old or new optimized-content JSON into a canonical dict for the builders."""
+    data: Dict[str, Any] = raw.get("optimized", raw) if ("optimized" in raw and "analysis" in raw) else raw
+
+    contact = data.get("contact", "")
+    if isinstance(contact, dict):
+        parts = [v for v in [contact.get("email"), contact.get("phone"), contact.get("location")] if v]
+        contact_str = " | ".join(parts)
+    else:
+        contact_str = str(contact)
+
+    tech = data.get("technical_skills") or data.get("skills") or []
+    prof = data.get("professional_skills") or []
+    skills = tech + prof
+
+    experience = []
+    for exp in (data.get("experience") or []):
+        experience.append({
+            "title": exp.get("title", ""),
+            "company": exp.get("company", ""),
+            "duration": exp.get("duration", ""),
+            "achievements": exp.get("bullets") or exp.get("achievements") or [],
+        })
+
+    education = [
+        {"degree": e.get("degree", ""), "institution": e.get("institution", ""), "year": e.get("year", "")}
+        for e in (data.get("education") or [])
+    ]
+
+    projects = []
+    for proj in (data.get("projects") or []):
+        bullets = proj.get("bullets") or []
+        desc = proj.get("description") or (bullets[0] if bullets else "")
+        techs = proj.get("technologies", [])
+        if isinstance(techs, str):
+            techs = [t.strip() for t in techs.split(",") if t.strip()]
+        projects.append({"name": proj.get("name", ""), "description": desc, "technologies": techs})
+
+    return {
+        "full_name": data.get("full_name", ""),
+        "contact": contact_str,
+        "summary": data.get("professional_summary") or data.get("summary", ""),
+        "skills": skills,
+        "experience": experience,
+        "education": education,
+        "projects": projects,
+        "certifications": data.get("certifications") or [],
+    }
+
+
 # ─── Routes ───────────────────────────────────────────────────────────────────
 
 @router.get("", response_model=List[ResumeResponse])
@@ -295,7 +348,7 @@ async def upload_resume(
     return resume
 
 
-@router.post("/{resume_id}/optimize", response_model=ResumeResponse)
+@router.post("/{resume_id}/optimize")
 def optimize_resume(
     resume_id: int,
     job_id: Optional[int] = Query(default=None),
@@ -308,14 +361,18 @@ def optimize_resume(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resume not found")
 
     jd_text = job_description or ""
-    job_title = ""
+    job_title = "Target Role"
+    company_name = ""
+    required_skills = ""
 
     if job_id:
         job = JobService.get_job_by_id(db, job_id)
         if not job:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Job {job_id} not found")
         jd_text = job.description or ""
-        job_title = job.title or ""
+        job_title = job.title or "Target Role"
+        company_name = job.company or ""
+        required_skills = job.required_skills or ""
 
     if not jd_text.strip():
         raise HTTPException(
@@ -324,21 +381,30 @@ def optimize_resume(
         )
 
     try:
-        result = ai_service.optimize_resume_for_job(
+        # Stage 1 — Analysis
+        analysis = ai_service.analyze_resume_job_fit(
             resume_text=resume.original_content,
-            job_description=jd_text,
             job_title=job_title,
+            company_name=company_name,
+            job_description=jd_text,
+            required_skills=required_skills,
+        )
+        # Stage 2 — Optimized rewrite
+        optimized = ai_service.generate_optimized_resume(
+            resume_text=resume.original_content,
+            analysis=analysis,
+            job_title=job_title,
+            company_name=company_name,
+            job_description=jd_text,
         )
     except Exception as e:
         logger.error(f"AI optimization error: {e}")
-        raise HTTPException(status_code=500, detail="AI service error. Check ANTHROPIC_API_KEY.")
+        raise HTTPException(status_code=500, detail="AI optimization failed. Please check your API key and try again.")
 
-    if result.get("status") == "error":
-        raise HTTPException(status_code=500, detail=result.get("message", "AI service error"))
+    result = {"analysis": analysis, "optimized": optimized}
+    ResumeService.update_optimized(db, resume, json.dumps(result, ensure_ascii=False))
 
-    # Store structured JSON as string
-    optimized_json = json.dumps(result["data"], ensure_ascii=False)
-    return ResumeService.update_optimized(db, resume, optimized_json)
+    return {"status": "success", "data": result}
 
 
 @router.get("/{resume_id}/download/docx")
@@ -352,9 +418,11 @@ def download_docx(
         raise HTTPException(status_code=404, detail="No optimized resume found")
 
     try:
-        data = json.loads(resume.optimized_content)
+        raw = json.loads(resume.optimized_content)
     except json.JSONDecodeError:
         raise HTTPException(status_code=422, detail="Optimized content is not valid JSON")
+
+    data = _normalize_data(raw)
 
     try:
         docx_bytes = _build_docx(data)
@@ -362,8 +430,8 @@ def download_docx(
         logger.error(f"DOCX generation failed: {e}")
         raise HTTPException(status_code=500, detail="Failed to generate DOCX file")
 
-    base = resume.file_name.rsplit(".", 1)[0]
-    filename = f"{base}_optimized.docx"
+    candidate = (data.get("full_name") or "").strip().replace(" ", "_")
+    filename = f"{candidate or resume.file_name.rsplit('.', 1)[0]}_Resume_Optimized.docx"
 
     return StreamingResponse(
         io.BytesIO(docx_bytes),
@@ -386,9 +454,11 @@ def download_pdf(
         raise HTTPException(status_code=404, detail="No optimized resume found")
 
     try:
-        data = json.loads(resume.optimized_content)
+        raw = json.loads(resume.optimized_content)
     except json.JSONDecodeError:
         raise HTTPException(status_code=422, detail="Optimized content is not valid JSON")
+
+    data = _normalize_data(raw)
 
     try:
         pdf_bytes = _build_pdf(data)
@@ -396,8 +466,8 @@ def download_pdf(
         logger.error(f"PDF generation failed: {e}")
         raise HTTPException(status_code=500, detail="Failed to generate PDF file")
 
-    base = resume.file_name.rsplit(".", 1)[0]
-    filename = f"{base}_optimized.pdf"
+    candidate = (data.get("full_name") or "").strip().replace(" ", "_")
+    filename = f"{candidate or resume.file_name.rsplit('.', 1)[0]}_Resume_Optimized.pdf"
 
     return StreamingResponse(
         io.BytesIO(pdf_bytes),

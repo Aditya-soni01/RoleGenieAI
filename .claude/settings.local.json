@@ -9,7 +9,16 @@
       "Bash(taskkill /F /IM python.exe)",
       "Bash(code-review-graph --help)",
       "Bash(code-review-graph build:*)",
-      "Bash(claude run:*)"
+      "Bash(claude run:*)",
+      "Bash(curl -s -X POST http://localhost:8001/api/resumes/4/optimize?job_id=19 -H \"Authorization: Bearer test\")",
+      "Bash(ls /d/Agent_APPs/ai-job-assistant-api/.env*)",
+      "Bash(curl -s 'http://localhost:8001/api/jobs?limit=3' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwidHlwZSI6ImFjY2VzcyIsImV4cCI6MTc3NTc0MDg4MH0.4Zaps5gaEMrlUYMospwjAXz8X4uygZt7jSsYJi6AO3s')",
+      "Bash(netstat -ano)",
+      "Bash(curl -s -X POST 'http://localhost:8001/api/resumes/1/optimize?job_id=1' -H 'Authorization: Bearer __TRACKED_VAR__' -H 'Content-Type: application/json')",
+      "Read(//c/Users/milan/AppData/Local/Temp/claude/d--Agent-APPs-ai-job-assistant-api/1c87e5a4-0ac6-400a-b1de-a8158b8a1c19/tasks/**)",
+      "Bash(wmic process:*)",
+      "Read(//c/Users/milan/Downloads/**)",
+      "mcp__code-review-graph__semantic_search_nodes_tool"
     ]
   }
 }

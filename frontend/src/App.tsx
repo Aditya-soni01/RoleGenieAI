@@ -8,6 +8,10 @@ import DashboardPage from '@/pages/DashboardPage';
 import JobsPage from '@/pages/JobsPage';
 import JobDetailPage from '@/pages/JobDetailPage';
 import ResumePage from '@/pages/ResumePage';
+import ProfilePage from '@/pages/ProfilePage';
+import SettingsPage from '@/pages/SettingsPage';
+import NotificationsPage from '@/pages/NotificationsPage';
+import SupportPage from '@/pages/SupportPage';
 import { isAuthenticated } from '@/store/authStore';
 
 const queryClient = new QueryClient({
@@ -46,6 +50,10 @@ const App: React.FC = () => {
             <Route path="jobs" element={<JobsPage />} />
             <Route path="jobs/:id" element={<JobDetailPage />} />
             <Route path="resume" element={<ResumePage />} />
+            <Route path="profile" element={<ProfilePage />} />
+            <Route path="settings" element={<SettingsPage />} />
+            <Route path="notifications" element={<NotificationsPage />} />
+            <Route path="support" element={<SupportPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>

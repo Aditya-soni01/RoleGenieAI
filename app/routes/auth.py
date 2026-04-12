@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.user import User
-from app.schemas.user import UserCreate, UserResponse
+from app.schemas.user import UserCreate, UserResponse, UserUpdate, PasswordChange
 from app.schemas.auth import Token, LoginRequest
 from app.services.auth_service import AuthService, get_current_user
 
@@ -138,3 +138,42 @@ async def login(
 async def get_me(current_user: Annotated[User, Depends(get_current_user)]) -> UserResponse:
     """Return the currently authenticated user's profile."""
     return current_user
+
+
+@router.put("/me", response_model=UserResponse)
+async def update_profile(
+    updates: UserUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> UserResponse:
+    """Update the currently authenticated user's profile."""
+    if updates.first_name is not None:
+        current_user.first_name = updates.first_name
+    if updates.last_name is not None:
+        current_user.last_name = updates.last_name
+    if updates.skills is not None:
+        current_user.skills = updates.skills
+    if updates.username is not None:
+        existing = db.query(User).filter(
+            User.username == updates.username, User.id != current_user.id
+        ).first()
+        if existing:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username already taken")
+        current_user.username = updates.username
+    db.commit()
+    db.refresh(current_user)
+    return current_user
+
+
+@router.put("/change-password")
+async def change_password(
+    data: PasswordChange,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+):
+    """Change the current user's password."""
+    if not auth_service.verify_password(data.current_password, current_user.hashed_password):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current password is incorrect")
+    current_user.hashed_password = auth_service.hash_password(data.new_password)
+    db.commit()
+    return {"message": "Password updated successfully"}
