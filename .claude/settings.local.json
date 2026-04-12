@@ -25,7 +25,8 @@
       "Bash(where python:*)",
       "Bash(python3 -c \"print\\('hello'\\)\")",
       "Read(//c/Users/milan/AppData/Local/Microsoft/WindowsApps/**)",
-      "Bash(/c/Users/milan/AppData/Local/Microsoft/WindowsApps/python3.exe -c \"import json; print\\(json.dumps\\({'test':1}\\)\\)\")"
+      "Bash(/c/Users/milan/AppData/Local/Microsoft/WindowsApps/python3.exe -c \"import json; print\\(json.dumps\\({'test':1}\\)\\)\")",
+      "Bash(node -e \"var fs=require\\('fs'\\); var d={nodes:[],edges:[],hyperedges:[],input_tokens:0,output_tokens:0}; fs.writeFileSync\\('d:/Agent_APPs/ai-job-assistant-api/graphify-out/.graphify_chunk_01.json',JSON.stringify\\(d\\)\\); console.log\\('init ok'\\);\")"
     ]
   }
 }
