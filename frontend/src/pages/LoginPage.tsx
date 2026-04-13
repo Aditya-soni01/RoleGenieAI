@@ -306,7 +306,7 @@ const LoginPage: React.FC = () => {
             {/* OAuth */}
             <div className="grid grid-cols-2 gap-4">
               <a
-                href="http://localhost:8001/api/auth/oauth/google"
+                href="https://rolegenie-backend.onrender.com/api/auth/oauth/google"
                 className="flex items-center justify-center gap-3 py-3 px-4 rounded-xl transition-colors duration-300 group"
                 style={{
                   background: 'rgba(39,54,71,0.8)',
@@ -322,7 +322,7 @@ const LoginPage: React.FC = () => {
                 <span className="text-sm font-medium text-[#d4e4fa] group-hover:text-white">Google</span>
               </a>
               <a
-                href="http://localhost:8001/api/auth/oauth/github"
+                href="https://rolegenie-backend.onrender.com/api/auth/oauth/github"
                 className="flex items-center justify-center gap-3 py-3 px-4 rounded-xl transition-colors duration-300 group"
                 style={{
                   background: 'rgba(39,54,71,0.8)',
