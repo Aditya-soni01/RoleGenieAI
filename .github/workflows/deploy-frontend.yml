@@ -3,7 +3,7 @@ name: Deploy Frontend to Hostinger
 on:
   push:
     branches:
-      - main   # or your frontend branch
+      - Frontend-Branch   # or your frontend branch
 
 jobs:
   build-and-deploy:
