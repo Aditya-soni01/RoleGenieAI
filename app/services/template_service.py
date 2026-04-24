@@ -239,68 +239,167 @@ def _docx_base(
 
 # ─── 10 DOCX template dispatchers ────────────────────────────────────────────
 
+def _docx_sidebar(data: NormalizedData) -> bytes:
+    """Two-column DOCX layout with skills/contact sidebar and main resume body."""
+    from docx import Document
+    from docx.shared import Pt, Inches, RGBColor
+    from docx.enum.table import WD_TABLE_ALIGNMENT, WD_CELL_VERTICAL_ALIGNMENT
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    doc = Document()
+    sec = doc.sections[0]
+    sec.top_margin = Inches(0.6)
+    sec.bottom_margin = Inches(0.6)
+    sec.left_margin = Inches(0.65)
+    sec.right_margin = Inches(0.65)
+
+    table = doc.add_table(rows=1, cols=2)
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    table.autofit = False
+    table.columns[0].width = Inches(2.0)
+    table.columns[1].width = Inches(5.0)
+    sidebar = table.cell(0, 0)
+    main = table.cell(0, 1)
+    sidebar.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.TOP
+    main.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.TOP
+
+    def shade(cell, fill: str):
+        tc_pr = cell._tc.get_or_add_tcPr()
+        shd = OxmlElement("w:shd")
+        shd.set(qn("w:fill"), fill)
+        tc_pr.append(shd)
+
+    shade(sidebar, "DBEAFE")
+
+    def para(cell, text: str = "", size: int = 10, bold: bool = False,
+             color: tuple = (0x11, 0x18, 0x27), before: int = 0,
+             after: int = 2):
+        p = cell.add_paragraph()
+        p.paragraph_format.space_before = Pt(before)
+        p.paragraph_format.space_after = Pt(after)
+        r = p.add_run(text)
+        r.bold = bold
+        r.font.size = Pt(size)
+        r.font.color.rgb = RGBColor(*color)
+        return p
+
+    def heading(cell, text: str, before: int = 10):
+        para(cell, text.upper(), size=8, bold=True, before=before, after=4)
+
+    para(sidebar, data.get("full_name", ""), size=18, bold=True, after=8)
+    if data.get("contact"):
+        heading(sidebar, "Contact", 8)
+        for part in str(data["contact"]).split(" | "):
+            para(sidebar, part, size=8, after=1)
+
+    skills = data.get("skills") or []
+    if skills:
+        heading(sidebar, "Skills", 12)
+        for skill in skills[:14]:
+            para(sidebar, skill, size=8, after=1)
+
+    if data.get("certifications"):
+        heading(sidebar, "Certifications", 12)
+        for cert in data["certifications"]:
+            para(sidebar, cert, size=8, after=1)
+
+    para(main, data.get("full_name", ""), size=24, bold=True, after=2)
+    if data.get("summary"):
+        heading(main, "Professional Summary", 10)
+        para(main, data["summary"], size=10, after=6)
+
+    if data.get("experience"):
+        heading(main, "Experience", 10)
+        for exp in data["experience"]:
+            para(main, f"{exp.get('title', '')} - {exp.get('company', '')}", size=10, bold=True, after=0)
+            para(main, exp.get("duration", ""), size=8, color=(0x4B, 0x55, 0x63), after=2)
+            for bullet in exp.get("achievements", []):
+                p = main.add_paragraph(style="List Bullet")
+                p.paragraph_format.space_after = Pt(1)
+                p.add_run(bullet).font.size = Pt(9)
+
+    if data.get("projects"):
+        heading(main, "Projects", 10)
+        for proj in data["projects"]:
+            para(main, proj.get("name", ""), size=10, bold=True, after=1)
+            desc = proj.get("description", "")
+            if desc:
+                para(main, desc, size=9, after=2)
+
+    if data.get("education"):
+        heading(main, "Education", 10)
+        for edu in data["education"]:
+            para(main, edu.get("degree", ""), size=10, bold=True, after=0)
+            para(main, f"{edu.get('institution', '')} | {edu.get('year', '')}", size=9, after=2)
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
 def _docx_t1(data: NormalizedData) -> bytes:
     """Classic Professional — blue, centered, standard."""
-    return _docx_base(data, name_size=22, name_centered=True, accent_rgb=(0x1A, 0x56, 0xDB))
+    return _docx_base(data, name_size=22, name_centered=True, accent_rgb=(0x1D, 0x4E, 0xD8))
 
 
 def _docx_t2(data: NormalizedData) -> bytes:
     """Compact ATS — teal, slightly smaller fonts, tighter margins."""
     return _docx_base(data, name_size=20, name_centered=True,
-                      accent_rgb=(0x0F, 0x76, 0x6E), compact=True,
+                      accent_rgb=(0x11, 0x18, 0x27), compact=True,
                       body_font_size=9, section_font_size=10)
 
 
 def _docx_t3(data: NormalizedData) -> bytes:
     """Modern ATS Professional — violet, left-aligned name."""
-    return _docx_base(data, name_size=24, name_centered=False, accent_rgb=(0x7C, 0x3A, 0xED))
+    return _docx_base(data, name_size=24, name_centered=False, accent_rgb=(0x1D, 0x4E, 0xD8))
 
 
 def _docx_t4(data: NormalizedData) -> bytes:
     """Clean Minimal — dark slate, thin HR, lowercase sections."""
     return _docx_base(data, name_size=20, name_centered=True,
-                      accent_rgb=(0x33, 0x41, 0x55), hr_thickness="4",
+                      accent_rgb=(0x11, 0x18, 0x27), hr_thickness="4",
                       section_uppercase=False, section_font_size=10)
 
 
 def _docx_t5(data: NormalizedData) -> bytes:
     """Technical Engineer — green, skills-first, grid layout."""
     return _docx_base(data, name_size=22, name_centered=True,
-                      accent_rgb=(0x05, 0x96, 0x69), skills_first=True,
-                      show_skills_grid=True)
+                      accent_rgb=(0x11, 0x18, 0x27), hr_thickness="8",
+                      section_font_size=11)
 
 
 def _docx_t6(data: NormalizedData) -> bytes:
     """Compact One-Page ATS — azure blue, very compact."""
-    return _docx_base(data, name_size=18, name_centered=True,
-                      accent_rgb=(0x03, 0x69, 0xA1), compact=True,
-                      body_font_size=9, section_font_size=9)
+    return _docx_sidebar(data)
 
 
 def _docx_t7(data: NormalizedData) -> bytes:
     """Executive Professional — dark navy, no bright colors."""
-    return _docx_base(data, name_size=22, name_centered=True,
-                      accent_rgb=(0x1E, 0x29, 0x3B), hr_thickness="8",
-                      section_font_size=11)
+    return _docx_base(data, name_size=22, name_centered=False,
+                      accent_rgb=(0x1D, 0x4E, 0xD8), skills_first=True,
+                      show_skills_grid=True)
 
 
 def _docx_t8(data: NormalizedData) -> bytes:
     """Skills-First Hybrid — cyan, skills second after name."""
     return _docx_base(data, name_size=22, name_centered=False,
-                      accent_rgb=(0x08, 0x91, 0xB2), skills_first=True)
+                      accent_rgb=(0x1E, 0x3A, 0x8A), projects_second=True)
 
 
 def _docx_t9(data: NormalizedData) -> bytes:
     """Project-Heavy Developer — rose, projects before experience."""
-    return _docx_base(data, name_size=22, name_centered=True,
-                      accent_rgb=(0xBE, 0x18, 0x5D), projects_second=True)
+    return _docx_base(data, name_size=24, name_centered=False,
+                      accent_rgb=(0x11, 0x18, 0x27), hr_thickness="8",
+                      section_font_size=11)
 
 
 def _docx_t10(data: NormalizedData) -> bytes:
     """Elegant Corporate ATS — amber, left-aligned, thin borders."""
     return _docx_base(data, name_size=20, name_centered=False,
-                      accent_rgb=(0xB4, 0x53, 0x09), hr_thickness="4",
-                      section_uppercase=False)
+                      accent_rgb=(0x1D, 0x4E, 0xD8), hr_thickness="4",
+                      section_uppercase=False, compact=True,
+                      body_font_size=9, section_font_size=10)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -510,28 +609,121 @@ def _pdf_base(
 
 # ─── 10 PDF template dispatchers ─────────────────────────────────────────────
 
+def _pdf_sidebar(data: NormalizedData) -> bytes:
+    """Two-column PDF layout with contact/skills sidebar and main content."""
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from reportlab.lib.units import inch
+    from reportlab.lib import colors
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=letter,
+        rightMargin=0.55 * inch,
+        leftMargin=0.55 * inch,
+        topMargin=0.55 * inch,
+        bottomMargin=0.55 * inch,
+    )
+
+    ink = colors.HexColor("#111827")
+    blue = colors.HexColor("#1d4ed8")
+    soft_blue = colors.HexColor("#dbeafe")
+    muted = colors.HexColor("#4b5563")
+
+    sidebar_head = ParagraphStyle("SidebarHead", fontSize=7.5, leading=9, fontName="Helvetica-Bold", textColor=ink, spaceBefore=8, spaceAfter=4)
+    sidebar_body = ParagraphStyle("SidebarBody", fontSize=7.5, leading=10, textColor=ink, spaceAfter=2)
+    name_style = ParagraphStyle("SidebarName", fontSize=24, leading=30, fontName="Helvetica-Bold", textColor=ink, spaceAfter=4)
+    section_style = ParagraphStyle("SidebarSection", fontSize=9, leading=11, fontName="Helvetica-Bold", textColor=blue, spaceBefore=10, spaceAfter=5)
+    body_style = ParagraphStyle("SidebarMainBody", fontSize=9.5, leading=13, textColor=ink, spaceAfter=4)
+    muted_style = ParagraphStyle("SidebarMuted", fontSize=8, leading=10, textColor=muted, spaceAfter=2)
+    bullet_style = ParagraphStyle("SidebarBullet", fontSize=9, leading=12, leftIndent=10, textColor=ink, spaceAfter=2)
+    title_style = ParagraphStyle("SidebarTitle", fontSize=10, leading=12, fontName="Helvetica-Bold", textColor=ink, spaceAfter=1, spaceBefore=4)
+
+    left: List[Any] = [Paragraph(f"<b>{data.get('full_name', '')}</b>", ParagraphStyle("LeftName", parent=sidebar_body, fontSize=15, leading=18, fontName="Helvetica-Bold"))]
+    if data.get("contact"):
+        left.append(Paragraph("CONTACT", sidebar_head))
+        for part in str(data["contact"]).split(" | "):
+            left.append(Paragraph(part, sidebar_body))
+
+    skills = data.get("skills") or []
+    if skills:
+        left.append(Paragraph("SKILLS", sidebar_head))
+        for skill in skills[:14]:
+            left.append(Paragraph(skill, sidebar_body))
+
+    if data.get("certifications"):
+        left.append(Paragraph("CERTIFICATIONS", sidebar_head))
+        for cert in data["certifications"]:
+            left.append(Paragraph(cert, sidebar_body))
+
+    right: List[Any] = [Paragraph(data.get("full_name", ""), name_style)]
+    if data.get("summary"):
+        right.extend([Paragraph("PROFESSIONAL SUMMARY", section_style), Paragraph(data["summary"], body_style)])
+
+    if data.get("experience"):
+        right.append(Paragraph("EXPERIENCE", section_style))
+        for exp in data["experience"]:
+            right.append(Paragraph(f"{exp.get('title', '')} - {exp.get('company', '')}", title_style))
+            right.append(Paragraph(exp.get("duration", ""), muted_style))
+            for bullet in exp.get("achievements", []):
+                right.append(Paragraph(f"- {bullet}", bullet_style))
+            right.append(Spacer(1, 3))
+
+    if data.get("projects"):
+        right.append(Paragraph("PROJECTS", section_style))
+        for proj in data["projects"]:
+            right.append(Paragraph(proj.get("name", ""), title_style))
+            desc = proj.get("description", "")
+            if desc:
+                right.append(Paragraph(desc, body_style))
+
+    if data.get("education"):
+        right.append(Paragraph("EDUCATION", section_style))
+        for edu in data["education"]:
+            right.append(Paragraph(edu.get("degree", ""), title_style))
+            right.append(Paragraph(f"{edu.get('institution', '')} | {edu.get('year', '')}", muted_style))
+
+    table = Table([[left, right]], colWidths=[1.85 * inch, 4.95 * inch])
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (0, 0), soft_blue),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (0, 0), 14),
+        ("RIGHTPADDING", (0, 0), (0, 0), 12),
+        ("TOPPADDING", (0, 0), (0, 0), 14),
+        ("BOTTOMPADDING", (0, 0), (0, 0), 14),
+        ("LEFTPADDING", (1, 0), (1, 0), 18),
+        ("RIGHTPADDING", (1, 0), (1, 0), 4),
+        ("TOPPADDING", (1, 0), (1, 0), 4),
+        ("LINEBEFORE", (1, 0), (1, 0), 1.5, blue),
+    ]))
+    doc.build([table])
+    return buf.getvalue()
+
+
 def _pdf_t1(data: NormalizedData) -> bytes:
     """Classic Professional — blue, centered."""
-    return _pdf_base(data, accent_hex="#1a56db", name_align=1)
+    return _pdf_base(data, accent_hex="#1d4ed8", name_align=1)
 
 
 def _pdf_t2(data: NormalizedData) -> bytes:
     """Compact ATS — teal, tighter layout."""
-    return _pdf_base(data, accent_hex="#0f766e", secondary_hex="#475569",
+    return _pdf_base(data, accent_hex="#111827", secondary_hex="#475569",
                      name_size=20, body_size=9, section_size=10,
                      compact=True, name_align=1)
 
 
 def _pdf_t3(data: NormalizedData) -> bytes:
     """Modern ATS Professional — violet, left-aligned name."""
-    return _pdf_base(data, accent_hex="#7c3aed", divider_hex="#ede9fe",
+    return _pdf_base(data, accent_hex="#1d4ed8", divider_hex="#dbeafe",
                      name_size=24, name_align=0, bold_divider=True)
 
 
 def _pdf_t4(data: NormalizedData) -> bytes:
     """Clean Minimal — dark slate, thin dividers, title-case labels."""
     return _pdf_base(
-        data, accent_hex="#334155", secondary_hex="#94a3b8",
+        data, accent_hex="#111827", secondary_hex="#6b7280",
         divider_hex="#f1f5f9", name_size=20, section_size=10,
         section_label_transform=str.title,
     )
@@ -539,41 +731,41 @@ def _pdf_t4(data: NormalizedData) -> bytes:
 
 def _pdf_t5(data: NormalizedData) -> bytes:
     """Technical Engineer — green, skills lead."""
-    return _pdf_base(data, accent_hex="#059669", divider_hex="#d1fae5",
-                     name_align=1, skills_first=True)
-
-
-def _pdf_t6(data: NormalizedData) -> bytes:
-    """Compact One-Page ATS — azure blue, very dense."""
-    return _pdf_base(data, accent_hex="#0369a1", name_size=18,
-                     body_size=9, section_size=9, compact=True,
-                     name_align=1, left_margin=0.75, right_margin=0.75)
-
-
-def _pdf_t7(data: NormalizedData) -> bytes:
-    """Executive Professional — near-black, thick dividers."""
-    return _pdf_base(data, accent_hex="#1e293b", secondary_hex="#475569",
+    return _pdf_base(data, accent_hex="#111827", secondary_hex="#475569",
                      divider_hex="#cbd5e1", name_size=22, bold_divider=True,
                      name_align=1, section_size=11)
 
 
+def _pdf_t6(data: NormalizedData) -> bytes:
+    """Compact One-Page ATS — azure blue, very dense."""
+    return _pdf_sidebar(data)
+
+
+def _pdf_t7(data: NormalizedData) -> bytes:
+    """Executive Professional — near-black, thick dividers."""
+    return _pdf_base(data, accent_hex="#1d4ed8", divider_hex="#dbeafe",
+                     name_align=0, skills_first=True)
+
+
 def _pdf_t8(data: NormalizedData) -> bytes:
     """Skills-First Hybrid — cyan, left-aligned, skills lead."""
-    return _pdf_base(data, accent_hex="#0891b2", divider_hex="#cffafe",
-                     name_align=0, skills_first=True)
+    return _pdf_base(data, accent_hex="#1e3a8a", divider_hex="#dbeafe",
+                     name_align=1, projects_second=True)
 
 
 def _pdf_t9(data: NormalizedData) -> bytes:
     """Project-Heavy Developer — rose, projects before experience."""
-    return _pdf_base(data, accent_hex="#be185d", divider_hex="#fce7f3",
-                     name_align=1, projects_second=True)
+    return _pdf_base(data, accent_hex="#111827", secondary_hex="#475569",
+                     divider_hex="#cbd5e1", name_size=24, bold_divider=True,
+                     name_align=0, section_size=11)
 
 
 def _pdf_t10(data: NormalizedData) -> bytes:
     """Elegant Corporate ATS — amber, left-aligned, thin dividers."""
-    return _pdf_base(data, accent_hex="#b45309", secondary_hex="#78716c",
-                     divider_hex="#fef3c7", name_size=20, name_align=0,
-                     section_label_transform=str.title, section_size=10)
+    return _pdf_base(data, accent_hex="#1d4ed8", secondary_hex="#475569",
+                     divider_hex="#dbeafe", name_size=20, name_align=0,
+                     section_label_transform=str.title, section_size=10,
+                     compact=True, body_size=9)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -611,12 +803,20 @@ _SLUG_ALIASES: Dict[str, str] = {
     "classic-professional":    "template_1",
     "compact-ats":             "template_2",
     "modern-ats-professional": "template_3",
+    "minimal-one-column":      "template_4",
+    "executive-clean":         "template_5",
+    "sidebar-professional":    "template_6",
+    "technical-skills-first":  "template_7",
+    "project-portfolio":       "template_8",
+    "senior-leadership":       "template_9",
+    "corporate-compact":       "template_10",
+    # Backward-compatible aliases for previously shipped slugs.
     "clean-minimal":           "template_4",
-    "technical-engineer":      "template_5",
-    "compact-one-page":        "template_6",
-    "executive-professional":  "template_7",
-    "skills-first-hybrid":     "template_8",
-    "project-heavy-developer": "template_9",
+    "technical-engineer":      "template_7",
+    "compact-one-page":        "template_10",
+    "executive-professional":  "template_5",
+    "skills-first-hybrid":     "template_7",
+    "project-heavy-developer": "template_8",
     "elegant-corporate":       "template_10",
 }
 

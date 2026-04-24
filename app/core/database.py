@@ -1,6 +1,6 @@
 from typing import Generator
 import logging
-from sqlalchemy import create_engine, Engine, event
+from sqlalchemy import create_engine, Engine, event, inspect, text
 from sqlalchemy.orm import sessionmaker, declarative_base, Session
 from sqlalchemy.pool import StaticPool
 
@@ -80,6 +80,40 @@ def init_db() -> None:
     """
     Base.metadata.create_all(bind=engine)
     logger.info("Database tables created successfully")
+
+
+def ensure_sqlite_schema_compatibility() -> None:
+    """Patch older local SQLite DBs that predate current user profile columns."""
+    if not settings.database_url.startswith("sqlite"):
+        return
+
+    inspector = inspect(engine)
+    if "users" not in inspector.get_table_names():
+        return
+
+    existing_columns = {column["name"] for column in inspector.get_columns("users")}
+    missing_columns = {
+        "plan_tier": "VARCHAR(50) NOT NULL DEFAULT 'starter'",
+        "is_admin": "BOOLEAN NOT NULL DEFAULT 0",
+        "last_login_at": "DATETIME",
+        "last_activity_at": "DATETIME",
+        "profile_headline": "VARCHAR(200)",
+        "phone": "VARCHAR(20)",
+        "location": "VARCHAR(100)",
+        "linkedin_url": "VARCHAR(300)",
+        "github_url": "VARCHAR(300)",
+        "portfolio_url": "VARCHAR(300)",
+        "professional_summary": "TEXT",
+        "profile_completeness": "INTEGER DEFAULT 0",
+        "preferences": "JSON",
+        "is_profile_complete": "BOOLEAN DEFAULT 0",
+    }
+
+    with engine.begin() as conn:
+        for column_name, column_type in missing_columns.items():
+            if column_name not in existing_columns:
+                conn.execute(text(f"ALTER TABLE users ADD COLUMN {column_name} {column_type}"))
+                logger.info("Added missing SQLite users.%s column", column_name)
 
 
 def drop_db() -> None:

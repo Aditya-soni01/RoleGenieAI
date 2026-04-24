@@ -15,11 +15,21 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "users",
-        sa.Column("is_admin", sa.Boolean(), nullable=False, server_default="0"),
-    )
+    inspector = sa.inspect(op.get_bind())
+    if "users" not in inspector.get_table_names():
+        return
+    existing_columns = {column["name"] for column in inspector.get_columns("users")}
+    if "is_admin" not in existing_columns:
+        op.add_column(
+            "users",
+            sa.Column("is_admin", sa.Boolean(), nullable=False, server_default="0"),
+        )
 
 
 def downgrade() -> None:
-    op.drop_column("users", "is_admin")
+    inspector = sa.inspect(op.get_bind())
+    if "users" not in inspector.get_table_names():
+        return
+    existing_columns = {column["name"] for column in inspector.get_columns("users")}
+    if "is_admin" in existing_columns:
+        op.drop_column("users", "is_admin")

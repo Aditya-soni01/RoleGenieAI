@@ -1,5 +1,4 @@
 from typing import Optional, List, Dict, Any
-from anthropic import Anthropic
 import logging
 import json
 import re
@@ -8,22 +7,264 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 
+class _TextBlock:
+    """Anthropic-compatible text block used by provider adapters."""
+
+    def __init__(self, text: str):
+        self.text = text
+
+
+class _ProviderResponse:
+    """Small response shape matching the fields this service already uses."""
+
+    def __init__(self, text: str, model: str):
+        self.content = [_TextBlock(text)]
+        self.model = model
+
+
+class _OpenAIMessagesAdapter:
+    """Expose a Claude-like messages.create API over OpenAI Responses."""
+
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+        self.client = None
+        try:
+            from openai import OpenAI
+
+            self.client = OpenAI(api_key=api_key) if api_key else OpenAI()
+        except ImportError:
+            logger.info("openai package not installed; using httpx fallback for OpenAI Responses API")
+
+    def create(
+        self,
+        *,
+        model: str,
+        max_tokens: int,
+        messages: List[Dict[str, str]],
+        system: Optional[str] = None,
+        **_: Any,
+    ) -> _ProviderResponse:
+        if self.client:
+            response = self.client.responses.create(
+                model=model,
+                input=messages,
+                instructions=system,
+                max_output_tokens=max_tokens,
+            )
+        else:
+            response = self._create_with_httpx(
+                model=model,
+                messages=messages,
+                system=system,
+                max_tokens=max_tokens,
+            )
+        return _ProviderResponse(self._extract_text(response), getattr(response, "model", model))
+
+    def _create_with_httpx(
+        self,
+        *,
+        model: str,
+        messages: List[Dict[str, str]],
+        system: Optional[str],
+        max_tokens: int,
+    ) -> Dict[str, Any]:
+        if not self.api_key:
+            raise ValueError("OPENAI_API_KEY is not configured")
+
+        import httpx
+
+        payload: Dict[str, Any] = {
+            "model": model,
+            "input": messages,
+            "max_output_tokens": max_tokens,
+        }
+        if system:
+            payload["instructions"] = system
+
+        response = httpx.post(
+            "https://api.openai.com/v1/responses",
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=120,
+            trust_env=False,
+        )
+        if response.is_error:
+            try:
+                error_payload = response.json()
+            except ValueError:
+                error_payload = response.text
+            raise RuntimeError(f"OpenAI API error {response.status_code}: {error_payload}")
+        return response.json()
+
+    @staticmethod
+    def _extract_text(response: Any) -> str:
+        if isinstance(response, dict):
+            output_text = response.get("output_text")
+            if output_text:
+                return output_text
+
+            parts: List[str] = []
+            for item in response.get("output", []) or []:
+                for content in item.get("content", []) or []:
+                    text = content.get("text")
+                    if text:
+                        parts.append(text)
+            if parts:
+                return "\n".join(parts)
+            return json.dumps(response)
+
+        output_text = getattr(response, "output_text", None)
+        if output_text:
+            return output_text
+
+        parts: List[str] = []
+        for item in getattr(response, "output", []) or []:
+            for content in getattr(item, "content", []) or []:
+                text = getattr(content, "text", None)
+                if text:
+                    parts.append(text)
+
+        if parts:
+            return "\n".join(parts)
+        return str(response)
+
+
+class _OpenAIClientAdapter:
+    def __init__(self, api_key: str):
+        self.messages = _OpenAIMessagesAdapter(api_key)
+
+
+class _OpenRouterMessagesAdapter:
+    """Expose a Claude-like messages.create API over OpenRouter chat completions."""
+
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+
+    def create(
+        self,
+        *,
+        model: str,
+        max_tokens: int,
+        messages: List[Dict[str, str]],
+        system: Optional[str] = None,
+        **_: Any,
+    ) -> _ProviderResponse:
+        if not self.api_key:
+            raise ValueError("OPENROUTER_API_KEY is not configured")
+
+        import httpx
+
+        chat_messages = list(messages)
+        if system:
+            chat_messages = [{"role": "system", "content": system}] + chat_messages
+
+        response = httpx.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://rolegenie.local",
+                "X-Title": "RoleGenie",
+            },
+            json={
+                "model": model,
+                "messages": chat_messages,
+                "max_tokens": max_tokens,
+            },
+            timeout=120,
+            trust_env=False,
+        )
+        if response.is_error:
+            try:
+                error_payload = response.json()
+            except ValueError:
+                error_payload = response.text
+            raise RuntimeError(f"OpenRouter API error {response.status_code}: {error_payload}")
+
+        payload = response.json()
+        choices = payload.get("choices") or []
+        if not choices:
+            return _ProviderResponse(json.dumps(payload), payload.get("model", model))
+
+        message = choices[0].get("message") or {}
+        content = message.get("content", "")
+        if isinstance(content, list):
+            text_parts = [
+                part.get("text", "")
+                for part in content
+                if isinstance(part, dict) and part.get("text")
+            ]
+            content = "\n".join(text_parts)
+
+        return _ProviderResponse(str(content), payload.get("model", model))
+
+
+class _OpenRouterClientAdapter:
+    def __init__(self, api_key: str):
+        self.messages = _OpenRouterMessagesAdapter(api_key)
+
+
 class AIService:
     """
-    Service layer for AI-powered job assistant features using Claude API.
+    Service layer for AI-powered job assistant features.
     Handles resume optimization, cover letter generation, and job-resume matching.
     """
 
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, model: Optional[str] = None, provider: str = "openai"):
         """
-        Initialize AI service with Anthropic Claude client.
+        Initialize AI service with the configured provider client.
 
         Args:
-            api_key: Anthropic API key for Claude access
+            api_key: Provider API key
+            model: Provider model ID to use for generation
+            provider: AI provider name (openai|anthropic|openrouter)
         """
-        self.client = Anthropic(api_key=api_key) if api_key else Anthropic()
-        self.model = "claude-sonnet-4-6"
+        self.provider = (provider or "openai").strip().lower()
+        self.model = model or self._default_model_for_provider()
+        self.client = self._build_client(api_key)
         self.conversation_history: List[Dict[str, str]] = []
+
+    def _default_model_for_provider(self) -> str:
+        if self.provider == "anthropic":
+            return "claude-sonnet-4-6"
+        if self.provider == "openrouter":
+            return "nvidia/nemotron-3-super-120b-a12b:free"
+        return "gpt-5.2"
+
+    def _build_client(self, api_key: str) -> Any:
+        if self.provider == "anthropic":
+            from anthropic import Anthropic
+
+            return Anthropic(api_key=api_key) if api_key else Anthropic()
+        if self.provider == "openai":
+            return _OpenAIClientAdapter(api_key)
+        if self.provider == "openrouter":
+            return _OpenRouterClientAdapter(api_key)
+        raise ValueError(f"Unsupported AI provider: {self.provider}")
+
+    @staticmethod
+    def summarize_provider_error(error: Exception) -> str:
+        """Return a concise, user-safe explanation for common AI provider errors."""
+        message = str(error)
+        lowered = message.lower()
+
+        if "model" in lowered and ("not found" in lowered or "invalid" in lowered or "not supported" in lowered):
+            return "AI model is not available. Check AI_PROVIDER and AI_MODEL in your backend environment."
+        if "api key" in lowered or "authentication" in lowered or "unauthorized" in lowered or "invalid x-api-key" in lowered:
+            return "AI provider authentication failed. Check AI_PROVIDER and the matching API key in your backend environment."
+        if "insufficient_quota" in lowered or "credit balance is too low" in lowered or "purchase credits" in lowered:
+            return "AI provider quota is exhausted or billing is inactive. Add credits, enable billing, or use a funded provider key."
+        if "credit" in lowered or "quota" in lowered or "billing" in lowered:
+            return "AI provider quota or billing check failed. Check your provider account limits."
+        if "rate limit" in lowered or "too many requests" in lowered:
+            return "AI provider rate limit was reached. Please retry after a short wait."
+        if "timeout" in lowered or "timed out" in lowered:
+            return "AI provider request timed out. Please retry in a moment."
+
+        return "AI provider request failed. Check backend logs for the provider error."
 
     def _add_to_history(self, role: str, content: str) -> None:
         """

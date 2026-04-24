@@ -2,7 +2,7 @@ from typing import Annotated
 import logging
 import secrets
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
@@ -13,6 +13,7 @@ from app.models.password_reset import PasswordResetToken
 from app.schemas.user import UserCreate, UserResponse, UserUpdate, PasswordChange
 from app.schemas.auth import Token, LoginRequest
 from app.services.auth_service import AuthService, get_current_user
+from app.services.analytics_service import AnalyticsService
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,7 @@ auth_service = AuthService()
 @router.post("/register", response_model=Token, status_code=status.HTTP_201_CREATED)
 async def register(
     user_data: UserCreate,
+    request: Request,
     db: Annotated[Session, Depends(get_db)],
 ) -> Token:
     """Register a new user with email and password."""
@@ -50,6 +52,8 @@ async def register(
             first_name=user_data.first_name,
             last_name=user_data.last_name,
             is_active=True,
+            last_login_at=datetime.utcnow(),
+            last_activity_at=datetime.utcnow(),
         )
 
         db.add(new_user)
@@ -57,6 +61,14 @@ async def register(
         db.refresh(new_user)
 
         logger.info(f"New user registered: {new_user.email} (ID: {new_user.id})")
+        AnalyticsService.log_event(
+            db,
+            "signup_completed",
+            user_id=new_user.id,
+            funnel_step="signup_completed",
+            metadata={"plan_tier": new_user.plan_tier},
+            request=request,
+        )
 
         access_token = auth_service.create_access_token(
             data={"sub": str(new_user.id), "email": new_user.email}
@@ -86,6 +98,7 @@ async def register(
 @router.post("/login", response_model=Token)
 async def login(
     credentials: LoginRequest,
+    request: Request,
     db: Annotated[Session, Depends(get_db)],
 ) -> Token:
     """Authenticate user with email and password."""
@@ -113,6 +126,18 @@ async def login(
             )
 
         logger.info(f"User logged in: {user.email} (ID: {user.id})")
+        user.last_login_at = datetime.utcnow()
+        user.last_activity_at = user.last_login_at
+        db.commit()
+        db.refresh(user)
+        AnalyticsService.log_event(
+            db,
+            "login",
+            user_id=user.id,
+            funnel_step="login",
+            metadata={"admin": bool(user.is_admin)},
+            request=request,
+        )
 
         access_token = auth_service.create_access_token(
             data={"sub": str(user.id), "email": user.email}
@@ -142,6 +167,25 @@ async def login(
 async def get_me(current_user: Annotated[User, Depends(get_current_user)]) -> UserResponse:
     """Return the currently authenticated user's profile."""
     return current_user
+
+
+@router.post("/logout")
+async def logout(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+):
+    """Record logout for analytics; JWT invalidation remains client-side until token revocation exists."""
+    session_id = request.headers.get("x-session-id")
+    AnalyticsService.log_event(
+        db,
+        "logout",
+        user_id=current_user.id,
+        session_id=session_id,
+        funnel_step="logout",
+        request=request,
+    )
+    return {"message": "Logged out successfully"}
 
 
 @router.put("/me", response_model=UserResponse)

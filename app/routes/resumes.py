@@ -2,7 +2,7 @@ import io
 import json
 from typing import List, Optional, Dict, Any
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Query, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 import logging
@@ -13,15 +13,21 @@ from app.schemas.resume import ResumeResponse
 from app.services.resume_service import ResumeService
 from app.services.auth_service import get_current_user
 from app.services.ai_service import AIService
+from app.services.analytics_service import AnalyticsService
 from app.services import template_service
 from app.models.user import User
+from app.models.activity import ActivityEvent
 from app.models.profile import UserSkill, UserExperience, UserProject, UserEducation, UserCertification
 from app.core.config import settings
 from app.utils.filename import build_resume_filename
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-ai_service = AIService(api_key=settings.anthropic_api_key)
+ai_service = AIService(
+    api_key=settings.ai_api_key,
+    model=settings.resolved_ai_model,
+    provider=settings.ai_provider,
+)
 
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
 DEFAULT_TEMPLATE = "template_1"
@@ -221,6 +227,73 @@ def _profile_has_content(profile_data: dict) -> bool:
     return has_experience or total_skills >= 3
 
 
+def _hydrate_resume_optimization_metadata(resume, db: Session):
+    """Backfill missing job metadata in optimized_content for older resumes.
+
+    Newer optimizations store this directly. Older rows can recover it from the
+    analytics event payload keyed by resume_id.
+    """
+    if not resume.optimized_content:
+        return resume
+
+    try:
+        raw = json.loads(resume.optimized_content)
+    except json.JSONDecodeError:
+        return resume
+
+    if not isinstance(raw, dict):
+        return resume
+
+    analysis = raw.get("analysis")
+    optimized = raw.get("optimized")
+    if not isinstance(analysis, dict) or not isinstance(optimized, dict):
+        return resume
+
+    existing_title = (
+        raw.get("job_title")
+        or analysis.get("job_title")
+        or (analysis.get("analyzed_job") or {}).get("title")
+        or optimized.get("job_title")
+    )
+    existing_company = raw.get("company") or optimized.get("company_name")
+    if existing_title and existing_company:
+        return resume
+
+    candidate_events = (
+        db.query(ActivityEvent)
+        .filter(
+            ActivityEvent.user_id == resume.user_id,
+            ActivityEvent.event_name.in_(["optimization_completed", "optimization_started"]),
+        )
+        .order_by(ActivityEvent.created_at.desc())
+        .all()
+    )
+    metadata = {}
+    for event in candidate_events:
+        payload = event.metadata_json or {}
+        if payload.get("resume_id") == resume.id and (
+            payload.get("job_title") or payload.get("company")
+        ):
+            metadata = payload
+            break
+    hydrated_title = existing_title or metadata.get("job_title")
+    hydrated_company = existing_company or metadata.get("company")
+
+    if not hydrated_title and not hydrated_company:
+        return resume
+
+    if hydrated_title:
+        raw["job_title"] = hydrated_title
+        analysis.setdefault("job_title", hydrated_title)
+        optimized.setdefault("job_title", hydrated_title)
+    if hydrated_company:
+        raw["company"] = hydrated_company
+        optimized.setdefault("company_name", hydrated_company)
+
+    resume.optimized_content = json.dumps(raw, ensure_ascii=False)
+    return resume
+
+
 # ─── Plan + template guard ────────────────────────────────────────────────────
 
 def _assert_template_access(user: User, template_id: str) -> None:
@@ -247,11 +320,13 @@ def list_resumes(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return ResumeService.get_user_resumes(db, current_user.id)
+    resumes = ResumeService.get_user_resumes(db, current_user.id)
+    return [_hydrate_resume_optimization_metadata(resume, db) for resume in resumes]
 
 
 @router.post("/upload", response_model=ResumeResponse, status_code=status.HTTP_201_CREATED)
 async def upload_resume(
+    request: Request,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -272,11 +347,20 @@ async def upload_resume(
 
     resume = ResumeService.create_resume(db, current_user.id, file.filename or "resume", text)
     logger.info(f"User {current_user.id} uploaded resume {resume.id} ({len(text)} chars)")
+    AnalyticsService.log_event(
+        db,
+        "resume_uploaded",
+        user_id=current_user.id,
+        funnel_step="resume_uploaded",
+        metadata={"resume_id": resume.id, "file_name": resume.file_name},
+        request=request,
+    )
     return resume
 
 
 @router.post("/{resume_id}/optimize")
 def optimize_resume(
+    request: Request,
     resume_id: int,
     job_description: Optional[str] = Query(default=None),
     job_title: Optional[str] = Query(default=None),
@@ -303,6 +387,19 @@ def optimize_resume(
 
     resolved_title = job_title or "Target Role"
     resolved_company = company or ""
+    AnalyticsService.log_event(
+        db,
+        "optimization_started",
+        user_id=current_user.id,
+        funnel_step="optimization_started",
+        metadata={
+            "resume_id": resume.id,
+            "template_id": tid,
+            "job_title": resolved_title,
+            "company": resolved_company,
+        },
+        request=request,
+    )
 
     # Load profile — use as source of truth if it has content
     profile_data = build_profile_context(current_user, db)
@@ -344,19 +441,49 @@ def optimize_resume(
             )
     except Exception as e:
         logger.error(f"AI optimization error: {e}")
+        AnalyticsService.log_event(
+            db,
+            "optimization_failed",
+            user_id=current_user.id,
+            funnel_step="optimization_failed",
+            metadata={"resume_id": resume.id, "template_id": tid, "error": AIService.summarize_provider_error(e)},
+            request=request,
+        )
         raise HTTPException(
             status_code=500,
-            detail="AI optimization failed. Please check your API key and try again.",
+            detail=AIService.summarize_provider_error(e),
         )
 
-    result = {"analysis": analysis, "optimized": optimized, "template_id": tid}
+    result = {
+        "analysis": {
+            **analysis,
+            "job_title": analysis.get("job_title") or resolved_title,
+        },
+        "optimized": {
+            **optimized,
+            "job_title": optimized.get("job_title") or resolved_title,
+            "company_name": optimized.get("company_name") or resolved_company,
+        },
+        "template_id": tid,
+        "job_title": resolved_title,
+        "company": resolved_company,
+    }
     ResumeService.update_optimized(db, resume, json.dumps(result, ensure_ascii=False))
+    AnalyticsService.log_event(
+        db,
+        "optimization_completed",
+        user_id=current_user.id,
+        funnel_step="optimization_completed",
+        metadata={"resume_id": resume.id, "template_id": tid},
+        request=request,
+    )
 
     return {"status": "success", "data": result}
 
 
 @router.get("/{resume_id}/download/docx")
 def download_docx(
+    request: Request,
     resume_id: int,
     template_id: Optional[str] = Query(default=None),
     job_title: Optional[str] = Query(default=None),
@@ -388,6 +515,14 @@ def download_docx(
     resolved_title = job_title or raw.get("optimized", {}).get("job_title") or ""
     user_name = data.get("full_name") or f"{current_user.first_name or ''} {current_user.last_name or ''}".strip()
     filename = build_resume_filename(user_name or None, resolved_title or None, "docx")
+    AnalyticsService.log_event(
+        db,
+        "docx_downloaded",
+        user_id=current_user.id,
+        funnel_step="docx_downloaded",
+        metadata={"resume_id": resume.id, "template_id": tid},
+        request=request,
+    )
 
     return StreamingResponse(
         io.BytesIO(docx_bytes),
@@ -401,6 +536,7 @@ def download_docx(
 
 @router.get("/{resume_id}/download/pdf")
 def download_pdf(
+    request: Request,
     resume_id: int,
     template_id: Optional[str] = Query(default=None),
     job_title: Optional[str] = Query(default=None),
@@ -430,6 +566,14 @@ def download_pdf(
     resolved_title = job_title or raw.get("optimized", {}).get("job_title") or ""
     user_name = data.get("full_name") or f"{current_user.first_name or ''} {current_user.last_name or ''}".strip()
     filename = build_resume_filename(user_name or None, resolved_title or None, "pdf")
+    AnalyticsService.log_event(
+        db,
+        "pdf_downloaded",
+        user_id=current_user.id,
+        funnel_step="pdf_downloaded",
+        metadata={"resume_id": resume.id, "template_id": tid},
+        request=request,
+    )
 
     return StreamingResponse(
         io.BytesIO(pdf_bytes),

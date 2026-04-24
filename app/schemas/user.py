@@ -35,7 +35,10 @@ class UserResponse(UserBase):
     """Schema for user response data."""
     id: int
     is_active: bool
+    is_admin: bool = False
     plan_tier: str = "starter"
+    last_login_at: Optional[datetime] = None
+    last_activity_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 

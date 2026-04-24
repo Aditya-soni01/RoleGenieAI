@@ -14,6 +14,7 @@ from app.schemas.ai import (
     SectionImproveResponse,
 )
 from app.services.ai_service import AIService
+from app.core.config import settings
 from app.services.auth_service import get_current_user
 from app.models.user import User
 
@@ -21,8 +22,11 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# AIService reads ANTHROPIC_API_KEY from the environment automatically
-ai_service = AIService(api_key="")
+ai_service = AIService(
+    api_key=settings.ai_api_key,
+    model=settings.resolved_ai_model,
+    provider=settings.ai_provider,
+)
 
 
 @router.post(

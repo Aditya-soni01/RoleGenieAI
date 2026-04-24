@@ -23,7 +23,11 @@ from app.schemas.profile import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-ai_service = AIService(api_key=settings.anthropic_api_key)
+ai_service = AIService(
+    api_key=settings.ai_api_key,
+    model=settings.resolved_ai_model,
+    provider=settings.ai_provider,
+)
 
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
 
@@ -463,7 +467,7 @@ async def parse_resume_to_profile(
         parsed = await ai_service.extract_profile_from_resume(text)
     except Exception as e:
         logger.error(f"Profile parse error: {e}")
-        raise HTTPException(status_code=500, detail="AI failed to parse the resume. Please try again.")
+        raise HTTPException(status_code=500, detail=AIService.summarize_provider_error(e))
 
     return {"status": "parsed", "data": parsed, "message": "Review and confirm before saving"}
 

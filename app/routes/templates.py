@@ -31,7 +31,7 @@ def list_templates(
     """
     if getattr(current_user, "is_admin", False):
         # Admin: return everything unlocked, reported as the highest plan
-        from app.core.plans import PlanTier, get_templates_for_plan
+        from app.core.plans import PlanTier
         templates = get_templates_for_plan(PlanTier.INTERVIEW_CRACKER)
         # Force all to unlocked regardless of supported_plans
         for t in templates:

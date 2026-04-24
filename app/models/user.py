@@ -21,6 +21,8 @@ class User(Base):
     plan_tier = Column(String(50), nullable=False, default="starter", server_default="starter")
     is_active = Column(Boolean, default=True)
     is_admin = Column(Boolean, default=False, server_default="0")
+    last_login_at = Column(DateTime, nullable=True)
+    last_activity_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

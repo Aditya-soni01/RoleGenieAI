@@ -168,11 +168,13 @@ class AuthService:
                 return None
             
             user_id: str = payload.get("sub")
+            if user_id is not None and not str(user_id).isdigit() and payload.get("user_id") is not None:
+                user_id = str(payload.get("user_id"))
             if user_id is None:
                 logger.warning("Token missing 'sub' claim")
                 return None
             
-            token_data = TokenData(user_id=user_id)
+            token_data = TokenData(user_id=str(user_id), email=payload.get("email"))
             return token_data
             
         except JWTError as e:
@@ -240,6 +242,7 @@ class AuthService:
 
 # OAuth2 scheme — token URL matches the login endpoint
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+optional_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
 
 def get_current_user(
@@ -265,7 +268,12 @@ def get_current_user(
     if token_data is None:
         raise credentials_exception
 
-    user = db.query(User).filter(User.id == int(token_data.user_id)).first()
+    try:
+        user_id = int(token_data.user_id)
+    except (TypeError, ValueError):
+        raise credentials_exception
+
+    user = db.query(User).filter(User.id == user_id).first()
     if user is None:
         raise credentials_exception
 
@@ -276,3 +284,39 @@ def get_current_user(
         )
 
     return user
+
+
+def get_optional_current_user(
+    token: Optional[str] = Depends(optional_oauth2_scheme),
+    db: Session = Depends(get_db),
+):
+    """Return the authenticated user when a valid bearer token is present."""
+    if not token:
+        return None
+
+    from app.models.user import User  # local import to avoid circular dependency
+
+    token_data = AuthService.verify_token(token, token_type="access")
+    if token_data is None:
+        return None
+
+    try:
+        user_id = int(token_data.user_id)
+    except (TypeError, ValueError):
+        return None
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if user is None or not user.is_active:
+        return None
+
+    return user
+
+
+def get_current_admin(current_user=Depends(get_current_user)):
+    """Require the current user to have admin privileges."""
+    if not getattr(current_user, "is_admin", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin privileges required",
+        )
+    return current_user

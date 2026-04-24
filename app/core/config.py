@@ -1,6 +1,6 @@
 from typing import List
 from pydantic_settings import BaseSettings
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, field_validator
 
 
 class Settings(BaseSettings):
@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = Field(
         default=7, ge=1, description="Refresh token expiration in days"
     )
+    admin_bootstrap_token: str = Field(
+        default="",
+        description="One-time secret used to create the first admin account",
+    )
 
     # CORS
     allowed_origins: List[str] = Field(
@@ -40,6 +44,7 @@ class Settings(BaseSettings):
             "http://127.0.0.1:3000",
             "http://127.0.0.1:5173",
         ],
+        validation_alias=AliasChoices("ALLOWED_ORIGINS", "CORS_ORIGINS"),
         description="Comma-separated list of allowed CORS origins",
     )
 
@@ -71,11 +76,26 @@ class Settings(BaseSettings):
     )
 
     # External APIs
+    ai_provider: str = Field(
+        default="openai",
+        description="AI provider used for resume/profile features (openai|anthropic|openrouter)",
+    )
+    ai_model: str = Field(
+        default="gpt-5.2",
+        description="Model ID used by the configured AI provider",
+    )
     openai_api_key: str = Field(
         default="", description="OpenAI API key for AI integrations"
     )
     anthropic_api_key: str = Field(
         default="", description="Anthropic API key for Claude integrations"
+    )
+    openrouter_api_key: str = Field(
+        default="", description="OpenRouter API key for OpenRouter integrations"
+    )
+    claude_model: str = Field(
+        default="claude-sonnet-4-6",
+        description="Legacy Anthropic Claude model ID. Prefer AI_MODEL for new config.",
     )
 
     # OAuth — Google
@@ -90,14 +110,32 @@ class Settings(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = False
+        extra = "ignore"
 
     @field_validator("allowed_origins", mode="before")
     @classmethod
     def parse_allowed_origins(cls, v: str | List[str]) -> List[str]:
         """Parse comma-separated string of origins into list."""
         if isinstance(v, str):
-            return [origin.strip() for origin in v.split(",") if origin.strip()]
+            normalized = v.strip()
+            if normalized.startswith("[") and normalized.endswith("]"):
+                import json
+
+                parsed = json.loads(normalized)
+                if isinstance(parsed, list):
+                    return [str(origin).strip() for origin in parsed if str(origin).strip()]
+            return [origin.strip() for origin in normalized.split(",") if origin.strip()]
         return v
+
+    @field_validator("ai_provider")
+    @classmethod
+    def validate_ai_provider(cls, v: str) -> str:
+        """Validate supported AI provider names."""
+        provider = v.strip().lower()
+        supported = {"openai", "anthropic", "openrouter"}
+        if provider not in supported:
+            raise ValueError(f"ai_provider must be one of {supported}, got {v}")
+        return provider
 
     @field_validator("app_env")
     @classmethod
@@ -109,6 +147,24 @@ class Settings(BaseSettings):
                 f"app_env must be one of {allowed_envs}, got {v}"
             )
         return v.lower()
+
+    @field_validator("debug", mode="before")
+    @classmethod
+    def parse_debug(cls, v: object) -> bool:
+        """Parse common deployment-style DEBUG values.
+
+        Some Windows/Node toolchains set DEBUG=release, which is not a Pydantic
+        boolean but should clearly mean non-debug mode for this API.
+        """
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, str):
+            normalized = v.strip().lower()
+            if normalized in {"1", "true", "yes", "on", "debug", "development"}:
+                return True
+            if normalized in {"0", "false", "no", "off", "release", "production"}:
+                return False
+        return bool(v)
 
     @field_validator("log_level")
     @classmethod
@@ -130,6 +186,26 @@ class Settings(BaseSettings):
     def is_development(self) -> bool:
         """Check if running in development environment."""
         return self.app_env == "development"
+
+    @property
+    def ai_api_key(self) -> str:
+        """Return the API key for the selected AI provider."""
+        if self.ai_provider == "anthropic":
+            return self.anthropic_api_key
+        if self.ai_provider == "openrouter":
+            return self.openrouter_api_key
+        return self.openai_api_key
+
+    @property
+    def resolved_ai_model(self) -> str:
+        """Return the model for the selected AI provider with legacy fallback."""
+        if self.ai_model:
+            return self.ai_model
+        if self.ai_provider == "anthropic":
+            return self.claude_model
+        if self.ai_provider == "openrouter":
+            return "nvidia/nemotron-3-super-120b-a12b:free"
+        return "gpt-5.2"
 
 
 settings = Settings()

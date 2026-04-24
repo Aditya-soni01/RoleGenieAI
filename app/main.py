@@ -5,10 +5,11 @@ from fastapi.openapi.utils import get_openapi
 import logging
 
 from app.core.config import settings
-from app.core.database import engine, Base
-from app.routes import auth, ai, resumes, templates
+from app.core.database import engine, Base, ensure_sqlite_schema_compatibility
+from app.routes import admin, analytics, auth, ai, resumes, templates
 from app.routes import oauth
 from app.routes.profile import router as profile_router
+from app.models import activity as _activity_model  # noqa: F401
 from app.models import resume as _resume_model  # noqa: F401 — ensures table is created
 from app.models import password_reset as _password_reset_model  # noqa: F401 — ensures table is created
 from app.models import profile as _profile_model  # noqa: F401 — ensures profile tables are created
@@ -21,6 +22,7 @@ async def lifespan(app: FastAPI):
     """Lifespan context manager — handles startup/shutdown."""
     logger.info("Starting RoleGenie Resume Optimizer API...")
     Base.metadata.create_all(bind=engine)
+    ensure_sqlite_schema_compatibility()
     logger.info("Database tables created/verified")
     logger.info("RoleGenie API started successfully")
     yield
@@ -47,6 +49,8 @@ app.add_middleware(
 # Include routers
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(oauth.router, prefix="/api/auth/oauth", tags=["OAuth"])
+app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
+app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
 app.include_router(ai.router, prefix="/api/ai", tags=["AI Services"])
 app.include_router(resumes.router, prefix="/api/resumes", tags=["Resumes"])
 app.include_router(templates.router, prefix="/api/templates", tags=["Templates"])

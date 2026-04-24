@@ -48,7 +48,7 @@ class AIRequestLog(Base):
     error_code = Column(String(50), nullable=True)
     
     # Metadata
-    metadata = Column(JSON, nullable=True)
+    metadata_json = Column("metadata", JSON, nullable=True)
     ip_address = Column(String(45), nullable=True)
     user_agent = Column(String(500), nullable=True)
 
