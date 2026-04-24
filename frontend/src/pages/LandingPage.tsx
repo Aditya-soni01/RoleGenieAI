@@ -283,13 +283,11 @@ const Navbar: React.FC<{ navigate: ReturnType<typeof useNavigate> }> = ({ naviga
       <div className="max-w-7xl mx-auto px-5 lg:px-8 h-16 flex items-center justify-between">
         {/* Logo */}
         <Link to="/" className="flex items-center gap-2.5 no-underline">
-          <div
-            className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-            style={{ background: GRAD }}
-          >
-            <Sparkles className="w-4 h-4 text-[#340080]" />
-          </div>
-          <span className="text-xl font-bold tracking-tighter genie-gradient-text">RoleGenie</span>
+          <img
+            src="/brand/logo-lockup-dark.svg"
+            alt="RoleGenie"
+            className="brand-lockup-md"
+          />
         </Link>
 
         {/* Desktop nav */}
@@ -1047,13 +1045,11 @@ const Footer: React.FC<{ navigate: ReturnType<typeof useNavigate> }> = ({ naviga
   >
     <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-5">
       <div className="flex items-center gap-2.5">
-        <div
-          className="w-7 h-7 rounded-lg flex items-center justify-center"
-          style={{ background: GRAD }}
-        >
-          <Sparkles className="w-3.5 h-3.5 text-[#340080]" />
-        </div>
-        <span className="font-bold tracking-tighter genie-gradient-text">RoleGenie</span>
+        <img
+          src="/brand/logo-lockup-dark.svg"
+          alt="RoleGenie"
+          className="brand-lockup-sm"
+        />
         <span className="text-xs text-[#8da8c0] hidden sm:inline">· AI Career Copilot by Auronex</span>
       </div>
 

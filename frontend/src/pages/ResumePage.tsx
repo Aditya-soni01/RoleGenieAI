@@ -8,8 +8,10 @@ import {
 } from 'lucide-react';
 import apiClient from '@/lib/api';
 import { authStore } from '@/store/authStore';
-import TemplateSelector from '@/components/resume/TemplateSelector';
-import { RESUME_TEMPLATES } from '@/data/resumeTemplates';
+import { trackEvent } from '@/lib/analytics';
+import ResumeTemplateGallery from '@/components/resume/ResumeTemplateGallery';
+import OptimizedResumeRenderer from '@/components/resume/OptimizedResumeRenderer';
+import { getResumeTemplate } from '@/data/resumeTemplateRegistry';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -142,7 +144,7 @@ const LOADING_STEPS = [
 ];
 
 const LoadingProgress: React.FC<{ step: number }> = ({ step }) => (
-  <div className="rounded-2xl p-10 text-center" style={{ background: 'rgba(13,28,45,1)', border: '1px solid rgba(73,68,84,0.2)' }}>
+  <div className="rounded-2xl p-10 text-center" style={{ background: 'var(--app-panel-strong)', border: '1px solid var(--app-border)' }}>
     <div className="flex items-center justify-center mb-8">
       <div className="relative w-16 h-16">
         <div className="absolute inset-0 rounded-full border-4 border-[#273647]" />
@@ -163,12 +165,12 @@ const LoadingProgress: React.FC<{ step: number }> = ({ step }) => (
               : <div className={`w-2 h-2 rounded-full ${i === step ? 'bg-[#340080]' : 'bg-[#494454]'}`} />}
           </div>
           <p className={`text-sm transition-all duration-500 text-left ${
-            i < step ? 'text-[#4edea3]' : i === step ? 'text-[#d4e4fa] font-semibold' : 'text-slate-600'
+            i < step ? 'text-[#4edea3]' : i === step ? 'theme-text font-semibold' : 'theme-text-subtle'
           }`}>{text}</p>
         </div>
       ))}
     </div>
-    <p className="text-center text-xs text-slate-500 mt-8 mono-label">Running two-stage AI pipeline — ~20–40 seconds</p>
+    <p className="theme-text-subtle text-center text-xs mt-8 mono-label">Running two-stage AI pipeline — ~20–40 seconds</p>
   </div>
 );
 
@@ -190,7 +192,7 @@ const SkillPill: React.FC<{ label: string; variant: 'matched' | 'missing' | 'nic
 
 // Look up accent colour from the new template data file
 function getTemplateAccent(templateId: string): string {
-  return RESUME_TEMPLATES.find((t) => t.id === templateId)?.colorScheme.primary ?? '#1a56db';
+  return getResumeTemplate(templateId).colors.accent;
 }
 
 const ResumePreview: React.FC<{ data: OptimizedResume; accentColor?: string }> = ({
@@ -344,10 +346,10 @@ const SuggestionsPanel: React.FC<{
       <p className="mono-label text-xs text-[#d0bcff] uppercase tracking-widest mb-3">Weak Sections</p>
       <div className="space-y-3">
         {optimized.professional_summary && (
-          <div className="flex items-start justify-between gap-3 p-4 rounded-xl" style={{ background: 'rgba(39,54,71,0.3)', border: '1px solid rgba(73,68,84,0.2)' }}>
+          <div className="flex items-start justify-between gap-3 p-4 rounded-xl" style={{ background: 'var(--app-panel-soft)', border: '1px solid var(--app-border)' }}>
             <div>
-              <p className="text-sm font-semibold text-[#d4e4fa] mb-0.5">Professional Summary</p>
-              <p className="text-xs text-[#cbc3d7]/60 line-clamp-2">{optimized.professional_summary}</p>
+              <p className="theme-text text-sm font-semibold mb-0.5">Professional Summary</p>
+              <p className="theme-text-muted text-xs line-clamp-2">{optimized.professional_summary}</p>
             </div>
             <button
               onClick={() => onImproveSection('professional_summary', optimized.professional_summary)}
@@ -359,10 +361,10 @@ const SuggestionsPanel: React.FC<{
           </div>
         )}
         {optimized.experience?.slice(0, 2).map((exp, i) => (
-          <div key={i} className="flex items-start justify-between gap-3 p-4 rounded-xl" style={{ background: 'rgba(39,54,71,0.3)', border: '1px solid rgba(73,68,84,0.2)' }}>
+          <div key={i} className="flex items-start justify-between gap-3 p-4 rounded-xl" style={{ background: 'var(--app-panel-soft)', border: '1px solid var(--app-border)' }}>
             <div>
-              <p className="text-sm font-semibold text-[#d4e4fa] mb-0.5">{exp.title} · {exp.company}</p>
-              <p className="text-xs text-[#cbc3d7]/60 line-clamp-1">{exp.bullets?.[0] || 'Experience bullets'}</p>
+              <p className="theme-text text-sm font-semibold mb-0.5">{exp.title} · {exp.company}</p>
+              <p className="theme-text-muted text-xs line-clamp-1">{exp.bullets?.[0] || 'Experience bullets'}</p>
             </div>
             <button
               onClick={() => onImproveSection(`experience_${i}`, exp.bullets?.join('\n') || '')}
@@ -377,9 +379,9 @@ const SuggestionsPanel: React.FC<{
     </div>
 
     {analysis.gap_analysis && (
-      <div className="p-4 rounded-xl" style={{ background: 'rgba(39,54,71,0.3)', border: '1px solid rgba(73,68,84,0.2)' }}>
-        <p className="mono-label text-xs text-slate-500 uppercase tracking-widest mb-2">Skill Gap Analysis</p>
-        <p className="text-sm text-[#cbc3d7] leading-relaxed">{analysis.gap_analysis}</p>
+      <div className="p-4 rounded-xl" style={{ background: 'var(--app-panel-soft)', border: '1px solid var(--app-border)' }}>
+        <p className="theme-text-subtle mono-label text-xs uppercase tracking-widest mb-2">Skill Gap Analysis</p>
+        <p className="theme-text-muted text-sm leading-relaxed">{analysis.gap_analysis}</p>
       </div>
     )}
   </div>
@@ -396,16 +398,16 @@ const ComparisonPanel: React.FC<{ original: string; optimized: OptimizedResume }
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       <div>
-        <p className="mono-label text-xs text-slate-500 uppercase tracking-widest mb-3">Original</p>
-        <div className="rounded-xl p-5 text-sm text-slate-400 leading-relaxed whitespace-pre-wrap max-h-[600px] overflow-y-auto"
-          style={{ background: 'rgba(39,54,71,0.2)', border: '1px solid rgba(73,68,84,0.15)' }}>
+        <p className="theme-text-subtle mono-label text-xs uppercase tracking-widest mb-3">Original</p>
+        <div className="rounded-xl p-5 theme-text-muted text-sm leading-relaxed whitespace-pre-wrap max-h-[600px] overflow-y-auto"
+          style={{ background: 'var(--app-panel-soft)', border: '1px solid var(--app-border)' }}>
           {original || 'No original content available.'}
         </div>
       </div>
       <div>
         <p className="mono-label text-xs text-[#4edea3] uppercase tracking-widest mb-3">Optimized</p>
-        <div className="rounded-xl p-5 text-sm text-[#d4e4fa] leading-relaxed whitespace-pre-wrap max-h-[600px] overflow-y-auto"
-          style={{ background: 'rgba(39,54,71,0.3)', border: '1px solid rgba(78,222,163,0.2)' }}>
+        <div className="rounded-xl p-5 theme-text text-sm leading-relaxed whitespace-pre-wrap max-h-[600px] overflow-y-auto"
+          style={{ background: 'var(--app-panel)', border: '1px solid rgba(78,222,163,0.2)' }}>
           {optimizedText}
         </div>
       </div>
@@ -497,7 +499,7 @@ const ResumePage: React.FC = () => {
           timeout: 120_000,
         })
         .then((r) => r.data),
-    onSuccess: (response: { status: string; data: OptimizationResult }) => {
+    onSuccess: (response: { status: string; data: OptimizationResult }, variables) => {
       const result = response.data ?? response;
       const parsed = tryParseOptimizationResult(
         typeof result === 'string' ? result : JSON.stringify(result)
@@ -505,6 +507,10 @@ const ResumePage: React.FC = () => {
       setOptimizationResult(parsed);
       queryClient.invalidateQueries({ queryKey: ['resumes'] });
       setActiveTab('preview');
+      trackEvent('preview_opened', {
+        funnelStep: 'preview_opened',
+        metadata: { resume_id: variables.resumeId, template_id: variables.templateId },
+      });
       showToast('AI optimization complete!');
     },
     onError: (err: any) => {
@@ -636,14 +642,14 @@ const ResumePage: React.FC = () => {
 
   if (!user) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-[#051424]">
-        <p className="text-slate-400">Please log in to manage your resumes.</p>
+      <div className="theme-shell flex items-center justify-center min-h-screen">
+        <p className="theme-text-subtle">Please log in to manage your resumes.</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#051424]">
+    <div className="theme-shell min-h-screen">
       {/* ── Toast ─────────────────────────────────────────────────────── */}
       {toast && (
         <div
@@ -663,10 +669,10 @@ const ResumePage: React.FC = () => {
       <div className="p-6 lg:p-8 max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
-          <h2 className="text-4xl font-extrabold tracking-tight text-[#d4e4fa] mb-1">
+          <h2 className="theme-text text-4xl font-extrabold tracking-tight mb-1">
             Resume <span className="genie-gradient-text">Optimizer</span>
           </h2>
-          <p className="mono-label text-[#cbc3d7]/60 text-sm uppercase tracking-widest">
+          <p className="theme-text-muted mono-label text-sm uppercase tracking-widest">
             Upload resume · Paste JD · AI Optimize · Download
           </p>
         </div>
@@ -675,8 +681,8 @@ const ResumePage: React.FC = () => {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-5">
 
           {/* LEFT — Source Document */}
-          <div className="rounded-2xl p-6 space-y-4" style={{ background: 'rgba(13,28,45,1)', border: '1px solid rgba(73,68,84,0.2)' }}>
-            <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest mono-label">Source Document</h3>
+          <div className="glass-card rounded-2xl p-6 space-y-4" style={{ border: '1px solid var(--app-border)' }}>
+            <h3 className="theme-text-subtle text-sm font-bold uppercase tracking-widest mono-label">Source Document</h3>
 
             {/* Drop zone */}
             <div
@@ -689,7 +695,7 @@ const ResumePage: React.FC = () => {
                   : 'border-[#273647]/60 hover:border-[#d0bcff]/50 hover:bg-[#d0bcff]/5'
               }`}
             >
-              <div className="w-12 h-12 rounded-full bg-[#273647] flex items-center justify-center mx-auto mb-3">
+              <div className="theme-panel w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3">
                 {uploadMutation.isPending
                   ? <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#d0bcff] border-t-transparent" />
                   : <Upload className="w-5 h-5 text-[#d0bcff]" />}
@@ -697,8 +703,8 @@ const ResumePage: React.FC = () => {
               {uploadMutation.isPending
                 ? <p className="text-sm text-[#d0bcff]">Extracting text…</p>
                 : <>
-                    <p className="font-bold text-[#d4e4fa] mb-1">Drop resume here</p>
-                    <p className="text-xs text-slate-500">PDF, DOCX · up to 10 MB</p>
+                    <p className="theme-text font-bold mb-1">Drop resume here</p>
+                    <p className="theme-text-subtle text-xs">PDF, DOCX - up to 10 MB</p>
                   </>}
               <input ref={fileInputRef} type="file" accept=".pdf,.docx,.txt" className="hidden" onChange={handleFileChange} />
             </div>
@@ -710,7 +716,7 @@ const ResumePage: React.FC = () => {
                   <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#d0bcff] border-t-transparent" />
                 </div>
               ) : resumes.length === 0 ? (
-                <div className="text-center py-6 text-slate-600">
+                <div className="theme-text-subtle text-center py-6">
                   <FileText className="h-7 w-7 mx-auto mb-2 opacity-20" />
                   <p className="text-xs">No resumes yet — upload one above</p>
                 </div>
@@ -724,18 +730,22 @@ const ResumePage: React.FC = () => {
                       onClick={() => setSelectedResumeId(resume.id)}
                       className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all ${
                         isSelected
-                          ? 'bg-[#273647]/60 border border-[#d0bcff]/30'
-                          : 'hover:bg-[#273647]/30 border border-transparent'
+                          ? 'border border-[#d0bcff]/30'
+                          : 'border border-transparent hover:border-[color:var(--app-border)]'
                       }`}
+                      style={{ background: isSelected ? 'color-mix(in srgb, var(--app-panel) 78%, #d0bcff 22%)' : 'transparent' }}
                     >
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${isSelected ? 'bg-[#d0bcff]/10' : 'bg-[#273647]'}`}>
-                        <FileText className={`h-4 w-4 ${isSelected ? 'text-[#d0bcff]' : 'text-slate-500'}`} />
+                      <div
+                        className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                        style={{ background: isSelected ? 'rgba(208,188,255,0.12)' : 'var(--app-panel-soft)' }}
+                      >
+                        <FileText className={`h-4 w-4 ${isSelected ? 'text-[#d0bcff]' : 'theme-text-subtle'}`} />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className={`text-sm font-semibold truncate ${isSelected ? 'text-[#d4e4fa]' : 'text-slate-300'}`}>
+                        <p className={`text-sm font-semibold truncate ${isSelected ? 'theme-text' : 'theme-text-muted'}`}>
                           {resume.file_name || resume.original_filename}
                         </p>
-                        <p className="text-xs text-slate-500">
+                        <p className="theme-text-subtle text-xs">
                           {new Date(resume.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
                           {isOpt && <span className="ml-2 text-[#4edea3]">✓ Optimized</span>}
                         </p>
@@ -744,7 +754,10 @@ const ResumePage: React.FC = () => {
                         {isSelected && <ChevronRight className="h-4 w-4 text-[#d0bcff]" />}
                         <button
                           onClick={(e) => { e.stopPropagation(); if (confirm(`Delete "${resume.file_name}"?`)) deleteMutation.mutate(resume.id); }}
-                          className="rounded-lg p-1.5 text-slate-500 hover:text-[#ffb4ab] hover:bg-[#273647] transition-colors"
+                          className="theme-text-subtle rounded-lg p-1.5 hover:text-[#ffb4ab] transition-colors"
+                          style={{ background: 'transparent' }}
+                          onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--app-panel-soft)'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
@@ -757,27 +770,35 @@ const ResumePage: React.FC = () => {
           </div>
 
           {/* RIGHT — Target Role */}
-          <div className="rounded-2xl p-6 space-y-5" style={{ background: 'rgba(13,28,45,1)', border: '1px solid rgba(73,68,84,0.2)' }}>
-            <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest mono-label">Target Role</h3>
+          <div className="glass-card rounded-2xl p-6 space-y-5" style={{ border: '1px solid var(--app-border)' }}>
+            <h3 className="theme-text-subtle text-sm font-bold uppercase tracking-widest mono-label">Target Role</h3>
 
             <div>
-              <label className="block text-xs mono-label text-slate-500 uppercase tracking-widest mb-2">
+              <label className="theme-text-subtle block text-xs mono-label uppercase tracking-widest mb-2">
                 Job Description <span className="text-[#ffb4ab]">*</span>
               </label>
               <textarea
                 value={jobDescription}
                 onChange={(e) => setJobDescription(e.target.value)}
+                onBlur={() => {
+                  if (jobDescription.trim().length > 0) {
+                    trackEvent('jd_pasted', {
+                      funnelStep: 'jd_pasted',
+                      metadata: { length: jobDescription.trim().length },
+                    });
+                  }
+                }}
                 rows={7}
                 placeholder="Paste the full job description here…&#10;&#10;Include the title, responsibilities, and requirements for best results."
-                className="w-full rounded-xl p-4 text-sm text-[#d4e4fa] placeholder:text-slate-600 bg-transparent resize-none focus:outline-none focus:ring-1 focus:ring-[#d0bcff]/40 transition-all"
-                style={{ background: 'rgba(39,54,71,0.3)', border: '1px solid rgba(73,68,84,0.3)' }}
+                className="theme-input w-full rounded-xl p-4 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-[#d0bcff]/40 transition-all"
+                style={{ background: 'var(--app-panel-soft)' }}
               />
             </div>
 
             {/* Job title + Company */}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs mono-label text-slate-500 uppercase tracking-widest mb-2">
+                <label className="theme-text-subtle block text-xs mono-label uppercase tracking-widest mb-2">
                   Job Title <span className="text-[#ffb4ab]">*</span>
                 </label>
                 <input
@@ -785,37 +806,37 @@ const ResumePage: React.FC = () => {
                   value={jobTitleOverride}
                   onChange={(e) => setJobTitleOverride(e.target.value)}
                   placeholder="e.g. Senior Backend Engineer"
-                  className="w-full rounded-xl px-4 py-2.5 text-sm text-[#d4e4fa] placeholder:text-slate-600 bg-transparent focus:outline-none focus:ring-1 focus:ring-[#d0bcff]/40 transition-all"
-                  style={{ background: 'rgba(39,54,71,0.3)', border: '1px solid rgba(73,68,84,0.3)' }}
+                  className="theme-input w-full rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-[#d0bcff]/40 transition-all"
+                  style={{ background: 'var(--app-panel-soft)' }}
                 />
               </div>
               <div>
-                <label className="block text-xs mono-label text-slate-500 uppercase tracking-widest mb-2">
-                  Company <span className="text-slate-600">(optional)</span>
+                <label className="theme-text-subtle block text-xs mono-label uppercase tracking-widest mb-2">
+                  Company <span className="theme-text-subtle">(optional)</span>
                 </label>
                 <input
                   type="text"
                   value={company}
                   onChange={(e) => setCompany(e.target.value)}
                   placeholder="e.g. Acme Corp"
-                  className="w-full rounded-xl px-4 py-2.5 text-sm text-[#d4e4fa] placeholder:text-slate-600 bg-transparent focus:outline-none focus:ring-1 focus:ring-[#d0bcff]/40 transition-all"
-                  style={{ background: 'rgba(39,54,71,0.3)', border: '1px solid rgba(73,68,84,0.3)' }}
+                  className="theme-input w-full rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-[#d0bcff]/40 transition-all"
+                  style={{ background: 'var(--app-panel-soft)' }}
                 />
               </div>
             </div>
-            <p className="text-[10px] text-slate-600 -mt-3 mono-label">
+            <p className="theme-text-subtle text-[10px] -mt-3 mono-label">
               Export file: {optimizationResult?.optimized?.full_name?.replace(/\s+/g, '_') || 'Name'}_{jobTitleOverride.trim().replace(/\s+/g, '_') || 'Tailored_Resume'}.pdf/docx
             </p>
 
             <div>
-              <label className="block text-xs mono-label text-slate-500 uppercase tracking-widest mb-2">
-                Resume Tone <span className="text-slate-600">(optional)</span>
+              <label className="theme-text-subtle block text-xs mono-label uppercase tracking-widest mb-2">
+                Resume Tone <span className="theme-text-subtle">(optional)</span>
               </label>
               <select
                 value={tone}
                 onChange={(e) => setTone(e.target.value)}
-                className="w-full rounded-xl px-4 py-2.5 text-sm text-[#d4e4fa] bg-transparent focus:outline-none cursor-pointer"
-                style={{ background: 'rgba(39,54,71,0.3)', border: '1px solid rgba(73,68,84,0.3)' }}
+                className="theme-input w-full rounded-xl px-4 py-2.5 text-sm focus:outline-none cursor-pointer"
+                style={{ background: 'var(--app-panel-soft)' }}
               >
                 {TONE_OPTIONS.map((t) => <option key={t} value={t} className="bg-[#122131]">{t}</option>)}
               </select>
@@ -826,15 +847,15 @@ const ResumePage: React.FC = () => {
         {/* ── Template Selector ─────────────────────────────────────────── */}
         <div
           className="rounded-2xl p-6 mb-6"
-          style={{ background: 'rgba(13,28,45,1)', border: '1px solid rgba(73,68,84,0.2)' }}
+          style={{ background: 'var(--app-panel-strong)', border: '1px solid var(--app-border)' }}
         >
           <div className="flex items-center gap-2 mb-4">
             <LayoutTemplate className="w-4 h-4 text-[#d0bcff]" />
-            <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest mono-label">
+            <h3 className="theme-text-subtle text-sm font-bold uppercase tracking-widest mono-label">
               Resume Template
             </h3>
           </div>
-          <TemplateSelector
+          <ResumeTemplateGallery
             selectedId={selectedTemplateId}
             onSelect={setSelectedTemplateId}
             onUpgradeCta={() => setShowUpgradeModal(true)}
@@ -847,14 +868,17 @@ const ResumePage: React.FC = () => {
             <div
               className="w-full max-w-md rounded-2xl p-8 text-center space-y-5 relative"
               style={{
-                background: 'rgba(13,28,45,0.98)',
-                border: '1px solid rgba(208,188,255,0.2)',
+                background: 'var(--app-panel-strong)',
+                border: '1px solid var(--app-border)',
                 boxShadow: '0 24px 80px rgba(0,0,0,0.5)',
               }}
             >
               <button
                 onClick={() => setShowUpgradeModal(false)}
-                className="absolute top-4 right-4 w-7 h-7 flex items-center justify-center rounded-full text-slate-500 hover:text-white hover:bg-[#273647]/60 transition-colors"
+                className="theme-text-subtle absolute top-4 right-4 w-7 h-7 flex items-center justify-center rounded-full transition-colors hover:text-[color:var(--app-text)]"
+                style={{ background: 'transparent' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--app-panel-soft)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
               >
                 <X className="w-4 h-4" />
               </button>
@@ -868,8 +892,8 @@ const ResumePage: React.FC = () => {
                 <Zap className="w-7 h-7 text-[#340080]" />
               </div>
               <div>
-                <h3 className="text-xl font-bold text-[#d4e4fa] mb-1.5">Unlock More Templates</h3>
-                <p className="text-sm text-[#9cb3cc]">
+                <h3 className="theme-text text-xl font-bold mb-1.5">Unlock More Templates</h3>
+                <p className="theme-text-muted text-sm">
                   Upgrade your plan to access additional ATS-optimized templates.
                   Job Seeker unlocks 2 templates; Interview Cracker unlocks all 10.
                 </p>
@@ -886,7 +910,7 @@ const ResumePage: React.FC = () => {
               </a>
               <button
                 onClick={() => setShowUpgradeModal(false)}
-                className="block mx-auto text-xs text-slate-600 hover:text-slate-400 transition-colors"
+                className="theme-text-subtle block mx-auto text-xs transition-colors hover:text-[#d0bcff]"
               >
                 Maybe later
               </button>
@@ -924,11 +948,11 @@ const ResumePage: React.FC = () => {
           <div className="space-y-6">
             {/* Result header bar */}
             <div className="rounded-2xl p-5 flex flex-col sm:flex-row items-start sm:items-center gap-5"
-              style={{ background: 'rgba(13,28,45,1)', border: '1px solid rgba(73,68,84,0.2)' }}>
+              style={{ background: 'var(--app-panel-strong)', border: '1px solid var(--app-border)' }}>
               {/* ATS scores */}
               <div className="flex items-center gap-5 flex-shrink-0">
                 <div className="text-center">
-                  <p className="mono-label text-[10px] text-slate-500 uppercase tracking-widest mb-0.5">Before</p>
+                  <p className="theme-text-subtle mono-label text-[10px] uppercase tracking-widest mb-0.5">Before</p>
                   <p className="text-3xl font-extrabold text-[#ffb4ab]">{optimizationResult.analysis.ats_score_before}</p>
                 </div>
                 <div className="flex flex-col items-center">
@@ -938,7 +962,7 @@ const ResumePage: React.FC = () => {
                   </span>
                 </div>
                 <div className="text-center">
-                  <p className="mono-label text-[10px] text-slate-500 uppercase tracking-widest mb-0.5">After</p>
+                  <p className="theme-text-subtle mono-label text-[10px] uppercase tracking-widest mb-0.5">After</p>
                   <p className="text-3xl font-extrabold text-[#4edea3]">{optimizationResult.optimized.ats_score_after}</p>
                 </div>
               </div>
@@ -946,10 +970,10 @@ const ResumePage: React.FC = () => {
               {/* ATS bar */}
               <div className="flex-1 w-full">
                 <div className="flex justify-between mb-1">
-                  <p className="mono-label text-[10px] text-slate-400 uppercase tracking-widest">ATS Score</p>
+                  <p className="theme-text-subtle mono-label text-[10px] uppercase tracking-widest">ATS Score</p>
                   <p className="mono-label text-[10px] text-[#4edea3]">{optimizationResult.optimized.ats_score_after}/100</p>
                 </div>
-                <div className="h-2 w-full rounded-full bg-[#273647]">
+                <div className="h-2 w-full rounded-full" style={{ background: 'var(--app-panel-soft)' }}>
                   <div className="h-2 rounded-full transition-all duration-700"
                     style={{ width: `${optimizationResult.optimized.ats_score_after}%`, background: 'linear-gradient(135deg, #d0bcff 0%, #4edea3 100%)' }} />
                 </div>
@@ -957,7 +981,7 @@ const ResumePage: React.FC = () => {
 
               {/* Keywords badge */}
               <div className="hidden sm:block text-center flex-shrink-0">
-                <p className="mono-label text-[10px] text-slate-500 uppercase tracking-widest mb-0.5">Keywords</p>
+                <p className="theme-text-subtle mono-label text-[10px] uppercase tracking-widest mb-0.5">Keywords</p>
                 <p className="text-2xl font-extrabold text-[#d0bcff]">+{optimizationResult.optimized.keywords_added?.length ?? 0}</p>
               </div>
 
@@ -965,9 +989,9 @@ const ResumePage: React.FC = () => {
               <div className="flex flex-col gap-2 flex-shrink-0">
                 {/* Active template badge */}
                 <div className="flex items-center gap-1.5 mb-1">
-                  <LayoutTemplate className="w-3 h-3 text-slate-500" />
-                  <span className="text-[10px] text-slate-500 mono-label uppercase tracking-wider truncate max-w-[110px]">
-                    {selectedTemplateId.replace('_', ' ')}
+                  <LayoutTemplate className="theme-text-subtle w-3 h-3" />
+                  <span className="theme-text-subtle text-[10px] mono-label uppercase tracking-wider truncate max-w-[110px]">
+                    {getResumeTemplate(selectedTemplateId).name}
                   </span>
                 </div>
                 <button onClick={() => handleDownload('pdf')}
@@ -977,19 +1001,19 @@ const ResumePage: React.FC = () => {
                 </button>
                 <button onClick={() => handleDownload('docx')}
                   className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all"
-                  style={{ background: 'rgba(39,54,71,0.8)', border: '1px solid rgba(73,68,84,0.3)', color: '#d4e4fa' }}>
+                  style={{ background: 'var(--app-panel)', border: '1px solid var(--app-border)', color: 'var(--app-text)' }}>
                   <FileText className="w-4 h-4" />DOCX
                 </button>
                 <button onClick={handleCopyText}
                   className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all"
-                  style={{ background: 'rgba(39,54,71,0.4)', border: '1px solid rgba(73,68,84,0.2)', color: '#cbc3d7' }}>
+                  style={{ background: 'var(--app-panel-soft)', border: '1px solid var(--app-border)', color: 'var(--app-text-muted)' }}>
                   <Copy className="w-4 h-4" />Copy
                 </button>
               </div>
             </div>
 
             {/* Tabs */}
-            <div className="flex gap-1 p-1 rounded-xl w-fit" style={{ background: 'rgba(39,54,71,0.4)' }}>
+            <div className="flex gap-1 p-1 rounded-xl w-fit" style={{ background: 'var(--app-panel-soft)' }}>
               {([
                 { id: 'preview', label: 'Optimized Resume', icon: FileText },
                 { id: 'suggestions', label: 'AI Suggestions', icon: Sparkles },
@@ -1000,9 +1024,10 @@ const ResumePage: React.FC = () => {
                   onClick={() => setActiveTab(id)}
                   className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
                     activeTab === id
-                      ? 'text-[#d0bcff] bg-[#273647]/80'
-                      : 'text-slate-500 hover:text-slate-300'
+                      ? 'text-[#d0bcff]'
+                      : 'theme-text-subtle hover:text-[color:var(--app-text)]'
                   }`}
+                  style={activeTab === id ? { background: 'var(--app-panel)' } : undefined}
                 >
                   <Icon className="w-4 h-4" />{label}
                 </button>
@@ -1010,11 +1035,11 @@ const ResumePage: React.FC = () => {
             </div>
 
             {/* Tab content */}
-            <div className="rounded-2xl p-6" style={{ background: 'rgba(13,28,45,1)', border: '1px solid rgba(73,68,84,0.2)' }}>
+            <div className="rounded-2xl p-6" style={{ background: 'var(--app-panel-strong)', border: '1px solid var(--app-border)' }}>
               {activeTab === 'preview' && (
-                <ResumePreview
+                <OptimizedResumeRenderer
                   data={optimizationResult.optimized}
-                  accentColor={getTemplateAccent(selectedTemplateId)}
+                  templateId={selectedTemplateId}
                 />
               )}
               {activeTab === 'suggestions' && (

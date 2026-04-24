@@ -1,27 +1,33 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { FileText, Sparkles, TrendingUp, ArrowRight, Zap } from 'lucide-react';
+import { ArrowRight, FileText, Sparkles, TrendingUp, Zap } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '@/lib/api';
 import { authStore } from '@/store/authStore';
 
 interface Resume {
   id: number;
+  file_name?: string;
   original_filename: string;
   optimized_content: string | null;
   created_at: string;
 }
 
 interface OptimizedData {
-  optimized?: { ats_score_after?: number; ats_score_before?: number };
-  analysis?: { job_title?: string };
+  optimized?: { ats_score_after?: number; ats_score_before?: number; job_title?: string };
+  analysis?: { job_title?: string; analyzed_job?: { title?: string } };
+  job_title?: string;
 }
 
 const FREE_PLAN_LIMIT = 5;
 
 function tryParseOptimized(content: string | null): OptimizedData | null {
   if (!content) return null;
-  try { return JSON.parse(content); } catch { return null; }
+  try {
+    return JSON.parse(content);
+  } catch {
+    return null;
+  }
 }
 
 const DashboardPage: React.FC = () => {
@@ -34,14 +40,14 @@ const DashboardPage: React.FC = () => {
     queryFn: () => apiClient.get<Resume[]>('/resumes').then((r) => r.data),
   });
 
-  const optimized = resumes.filter((r) => r.optimized_content);
+  const optimized = resumes.filter((resume) => resume.optimized_content);
   const totalResumes = resumes.length;
   const totalOptimizations = optimized.length;
   const avgAts =
     optimized.length > 0
       ? Math.round(
-          optimized.reduce((sum, r) => {
-            const parsed = tryParseOptimized(r.optimized_content);
+          optimized.reduce((sum, resume) => {
+            const parsed = tryParseOptimized(resume.optimized_content);
             return sum + (parsed?.optimized?.ats_score_after ?? 0);
           }, 0) / optimized.length
         )
@@ -57,21 +63,21 @@ const DashboardPage: React.FC = () => {
   const stats = [
     {
       label: 'Resumes',
-      value: isLoading ? '—' : String(totalResumes),
+      value: isLoading ? '-' : String(totalResumes),
       icon: FileText,
       iconColor: 'text-[#d0bcff]',
       iconBg: 'bg-[#d0bcff]/10',
     },
     {
       label: 'Optimizations',
-      value: isLoading ? '—' : String(totalOptimizations),
+      value: isLoading ? '-' : String(totalOptimizations),
       icon: Sparkles,
       iconColor: 'text-[#4edea3]',
       iconBg: 'bg-[#4edea3]/10',
     },
     {
       label: 'Avg ATS Score',
-      value: isLoading ? '—' : avgAts > 0 ? String(avgAts) : '—',
+      value: isLoading ? '-' : avgAts > 0 ? String(avgAts) : '-',
       icon: TrendingUp,
       iconColor: 'text-[#ffb3af]',
       iconBg: 'bg-[#ffb3af]/10',
@@ -79,128 +85,148 @@ const DashboardPage: React.FC = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-[#051424] p-6 lg:p-8 max-w-5xl mx-auto">
-      {/* ── Welcome ─────────────────────────────────────────────────── */}
+    <div className="theme-shell mx-auto min-h-screen max-w-5xl p-6 lg:p-8">
       <section className="mb-10">
-        <h2 className="text-4xl font-bold tracking-tight text-[#d4e4fa] mb-1">
+        <h2 className="theme-text mb-1 text-4xl font-bold tracking-tight">
           Welcome back, <span className="genie-gradient-text">{firstName}</span>
         </h2>
-        <p className="text-[#cbc3d7]/70 mono-label tracking-tight text-sm">
+        <p className="theme-text-muted mono-label text-sm tracking-tight">
           Your AI resume optimization workspace
         </p>
       </section>
 
-      {/* ── Start New Optimization CTA ──────────────────────────────── */}
       <section className="mb-8">
         <div
-          className="relative overflow-hidden rounded-2xl p-8 border border-[#d0bcff]/20"
+          className="relative overflow-hidden rounded-2xl border p-8"
           style={{
             background: 'linear-gradient(135deg, rgba(208,188,255,0.08) 0%, rgba(78,222,163,0.06) 100%)',
             backdropFilter: 'blur(20px)',
+            borderColor: 'rgba(208,188,255,0.2)',
           }}
         >
           <div
             className="absolute inset-0 pointer-events-none opacity-20"
             style={{ background: 'radial-gradient(ellipse at top left, #d0bcff 0%, transparent 60%)' }}
           />
-          <div className="relative flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
+          <div className="relative flex flex-col items-start justify-between gap-6 sm:flex-row sm:items-center">
             <div className="flex items-start gap-4">
-              <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
-                style={{ background: 'linear-gradient(135deg, #d0bcff 0%, #4edea3 100%)' }}>
-                <Zap className="w-6 h-6 text-[#340080]" />
+              <div
+                className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl"
+                style={{ background: 'linear-gradient(135deg, #d0bcff 0%, #4edea3 100%)' }}
+              >
+                <Zap className="h-6 w-6 text-[#340080]" />
               </div>
               <div>
-                <h3 className="text-xl font-bold text-[#d4e4fa] mb-1">Start New Optimization</h3>
-                <p className="text-sm text-[#cbc3d7]/80 max-w-sm">
-                  Upload your resume and paste a job description to get AI-powered suggestions and an ATS score.
+                <h3 className="theme-text mb-1 text-xl font-bold">Start New Optimization</h3>
+                <p className="theme-text-muted max-w-sm text-sm">
+                  Upload your resume and paste a job description to get AI-powered suggestions
+                  and an ATS score.
                 </p>
               </div>
             </div>
             <button
               onClick={() => navigate('/resume')}
-              className="flex items-center gap-2 px-6 py-3 rounded-xl font-bold text-sm whitespace-nowrap flex-shrink-0 transition-opacity hover:opacity-90"
-              style={{ background: 'linear-gradient(135deg, #d0bcff 0%, #4edea3 100%)', color: '#340080' }}
+              className="flex flex-shrink-0 items-center gap-2 whitespace-nowrap rounded-xl px-6 py-3 text-sm font-bold transition-opacity hover:opacity-90"
+              style={{
+                background: 'linear-gradient(135deg, #d0bcff 0%, #4edea3 100%)',
+                color: '#340080',
+              }}
             >
               Optimize Resume
-              <ArrowRight className="w-4 h-4" />
+              <ArrowRight className="h-4 w-4" />
             </button>
           </div>
         </div>
       </section>
 
-      {/* ── Stats ───────────────────────────────────────────────────── */}
-      <section className="grid grid-cols-3 gap-4 mb-8">
+      <section className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
         {stats.map(({ label, value, icon: Icon, iconColor, iconBg }) => (
           <div
             key={label}
-            className="glass-card p-5 rounded-xl border border-[#273647]/10"
+            className="glass-card rounded-xl border p-5"
+            style={{ borderColor: 'var(--app-border)' }}
           >
-            <div className={`w-9 h-9 rounded-lg ${iconBg} flex items-center justify-center mb-3`}>
-              <Icon className={`${iconColor} w-4 h-4`} />
+            <div className={`mb-3 flex h-9 w-9 items-center justify-center rounded-lg ${iconBg}`}>
+              <Icon className={`${iconColor} h-4 w-4`} />
             </div>
-            <p className="text-2xl font-bold text-[#d4e4fa] mb-0.5">{value}</p>
-            <p className="mono-label text-[10px] text-[#cbc3d7] uppercase tracking-widest">{label}</p>
+            <p className="theme-text mb-0.5 text-2xl font-bold">{value}</p>
+            <p className="theme-text-muted mono-label text-[10px] uppercase tracking-widest">
+              {label}
+            </p>
           </div>
         ))}
       </section>
 
-      {/* ── Recent Optimizations ─────────────────────────────────────── */}
       <section className="mb-8">
-        <h3 className="text-base font-bold text-[#d4e4fa] uppercase tracking-widest mono-label mb-4">
+        <h3 className="theme-text mono-label mb-4 text-base font-bold uppercase tracking-widest">
           Recent Optimizations
         </h3>
-        <div className="glass-card rounded-xl border border-[#273647]/10 overflow-hidden">
+        <div
+          className="glass-card overflow-hidden rounded-xl border"
+          style={{ borderColor: 'var(--app-border)' }}
+        >
           {isLoading ? (
-            <div className="p-6 space-y-3">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="h-12 bg-[#273647]/40 rounded-lg animate-pulse" />
+            <div className="space-y-3 p-6">
+              {[1, 2, 3].map((index) => (
+                <div key={index} className="theme-panel-soft h-12 animate-pulse rounded-lg" />
               ))}
             </div>
           ) : recentOptimizations.length === 0 ? (
-            <div className="p-10 text-center text-slate-500">
-              <Sparkles className="w-10 h-10 mx-auto mb-3 opacity-20" />
-              <p className="text-sm">No optimizations yet. Upload a resume to get started!</p>
+            <div className="theme-text-subtle p-10 text-center">
+              <Sparkles className="mx-auto mb-3 h-10 w-10 opacity-20" />
+              <p className="text-sm">No optimizations yet. Upload a resume to get started.</p>
             </div>
           ) : (
-            recentOptimizations.map((r, idx) => {
-              const parsed = tryParseOptimized(r.optimized_content);
+            recentOptimizations.map((resume, index) => {
+              const parsed = tryParseOptimized(resume.optimized_content);
               const scoreBefore = parsed?.optimized?.ats_score_before ?? '?';
               const scoreAfter = parsed?.optimized?.ats_score_after ?? '?';
-              const jobTitle = parsed?.analysis?.job_title ?? 'Unknown Role';
-              const date = new Date(r.created_at).toLocaleDateString('en-US', {
-                month: 'short', day: 'numeric', year: 'numeric',
+              const jobTitle =
+                parsed?.job_title ||
+                parsed?.analysis?.job_title ||
+                parsed?.analysis?.analyzed_job?.title ||
+                parsed?.optimized?.job_title ||
+                'Unknown Role';
+              const date = new Date(resume.created_at).toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
               });
 
               return (
                 <div
-                  key={r.id}
-                  className={`flex items-center justify-between p-4 gap-4 ${
-                    idx < recentOptimizations.length - 1 ? 'border-b border-[#273647]/20' : ''
+                  key={resume.id}
+                  className={`flex items-center justify-between gap-4 p-4 ${
+                    index < recentOptimizations.length - 1 ? 'border-b' : ''
                   }`}
+                  style={{
+                    borderColor:
+                      index < recentOptimizations.length - 1 ? 'var(--app-border)' : undefined,
+                  }}
                 >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-8 h-8 rounded-lg bg-[#273647]/60 flex items-center justify-center flex-shrink-0">
-                      <FileText className="w-4 h-4 text-[#d0bcff]" />
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="theme-panel flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg">
+                      <FileText className="h-4 w-4 text-[#d0bcff]" />
                     </div>
                     <div className="min-w-0">
-                      <p className="text-sm font-semibold text-[#d4e4fa] truncate">
-                        {r.original_filename}
+                      <p className="theme-text truncate text-sm font-semibold">
+                        {resume.file_name || resume.original_filename}
                       </p>
-                      <p className="text-xs text-[#cbc3d7]/60 truncate">
-                        → "{jobTitle}" · {date}
+                      <p className="theme-text-muted truncate text-xs">
+                        for "{jobTitle}" - {date}
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-4 flex-shrink-0">
-                    <div className="text-right hidden sm:block">
-                      <p className="text-xs text-[#cbc3d7]/60 mono-label">ATS</p>
+                  <div className="flex flex-shrink-0 items-center gap-4">
+                    <div className="hidden text-right sm:block">
+                      <p className="theme-text-muted mono-label text-xs">ATS</p>
                       <p className="text-sm font-bold text-[#4edea3]">
-                        {scoreBefore} → {scoreAfter}
+                        {scoreBefore} to {scoreAfter}
                       </p>
                     </div>
                     <button
-                      onClick={() => navigate('/resume', { state: { resumeId: r.id } })}
-                      className="text-xs font-bold px-3 py-1.5 rounded-lg text-[#d0bcff] border border-[#d0bcff]/30 hover:bg-[#d0bcff]/10 transition-colors"
+                      onClick={() => navigate('/resume', { state: { resumeId: resume.id } })}
+                      className="rounded-lg border border-[#d0bcff]/30 px-3 py-1.5 text-xs font-bold text-[#d0bcff] transition-colors hover:bg-[#d0bcff]/10"
                     >
                       View
                     </button>
@@ -212,29 +238,32 @@ const DashboardPage: React.FC = () => {
         </div>
       </section>
 
-      {/* ── Plan Usage ──────────────────────────────────────────────── */}
       <section>
         <div
-          className="glass-card rounded-xl border border-[#273647]/10 p-5"
+          className="glass-card rounded-xl border p-5"
+          style={{ borderColor: 'var(--app-border)' }}
         >
-          <div className="flex items-center justify-between mb-3">
+          <div className="mb-3 flex items-center justify-between">
             <div>
-              <p className="mono-label text-xs font-bold tracking-widest uppercase text-[#d0bcff] mb-0.5">
+              <p className="mono-label mb-0.5 text-xs font-bold uppercase tracking-widest text-[#d0bcff]">
                 Free Plan
               </p>
-              <p className="text-sm text-[#cbc3d7]">
+              <p className="theme-text-muted text-sm">
                 {optimizationsUsed} of {FREE_PLAN_LIMIT} optimizations used this month
               </p>
             </div>
             <button
               onClick={() => navigate('/subscription')}
-              className="text-xs font-bold px-4 py-2 rounded-lg transition-opacity hover:opacity-90 flex-shrink-0"
-              style={{ background: 'linear-gradient(135deg, #d0bcff 0%, #4edea3 100%)', color: '#340080' }}
+              className="flex-shrink-0 rounded-lg px-4 py-2 text-xs font-bold transition-opacity hover:opacity-90"
+              style={{
+                background: 'linear-gradient(135deg, #d0bcff 0%, #4edea3 100%)',
+                color: '#340080',
+              }}
             >
               Upgrade to Pro
             </button>
           </div>
-          <div className="w-full h-2 bg-[#273647]/60 rounded-full overflow-hidden">
+          <div className="theme-panel-soft h-2 w-full overflow-hidden rounded-full">
             <div
               className="h-full rounded-full transition-all duration-500"
               style={{

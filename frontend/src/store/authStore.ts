@@ -39,7 +39,10 @@ export interface User {
   first_name: string;
   last_name: string;
   is_active: boolean;
+  is_admin: boolean;
   plan_tier: 'starter' | 'job_seeker' | 'interview_cracker';
+  last_login_at?: string | null;
+  last_activity_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -52,6 +55,7 @@ export interface AuthState {
   
   // Actions
   login: (email: string, password: string) => Promise<void>;
+  adminLogin: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, username: string, firstName: string, lastName: string) => Promise<void>;
   logout: () => void;
   clearError: () => void;
@@ -89,6 +93,27 @@ export const authStore = create<AuthState>()(
         }
       },
 
+      adminLogin: async (email: string, password: string) => {
+        set({ isLoading: true, error: null });
+        try {
+          const tokenRes = await apiClient.post('/admin/login', { email, password });
+          const { access_token } = tokenRes.data;
+          set({ accessToken: access_token });
+          const meRes = await apiClient.get('/auth/me');
+          if (!meRes.data?.is_admin) {
+            set({ isLoading: false, error: 'Admin privileges required.', user: null, accessToken: null });
+            throw new Error('Admin privileges required.');
+          }
+          set({ user: meRes.data, isLoading: false, error: null });
+        } catch (err: any) {
+          const errorMessage = err?.message === 'Admin privileges required.'
+            ? err.message
+            : resolveAuthError(err, 'login');
+          set({ isLoading: false, error: errorMessage, user: null, accessToken: null });
+          throw err;
+        }
+      },
+
       register: async (email: string, password: string, username: string, firstName: string, lastName: string) => {
         set({ isLoading: true, error: null });
         try {
@@ -112,6 +137,7 @@ export const authStore = create<AuthState>()(
       },
 
       logout: () => {
+        void apiClient.post('/auth/logout').catch(() => undefined);
         set({
           user: null,
           accessToken: null,
@@ -155,6 +181,11 @@ export const useAuth = () => {
 export const isAuthenticated = (): boolean => {
   const state = authStore.getState();
   return !!state.user && !!state.accessToken;
+};
+
+export const isAdminAuthenticated = (): boolean => {
+  const state = authStore.getState();
+  return !!state.user?.is_admin && !!state.accessToken;
 };
 
 /**

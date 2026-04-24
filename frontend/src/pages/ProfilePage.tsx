@@ -36,17 +36,17 @@ const CATEGORY_LABELS: Record<string, string> = {
 // ─── Shared styling ───────────────────────────────────────────────────────────
 
 const cardStyle: React.CSSProperties = {
-  background: 'rgba(13,28,45,0.9)',
-  border: '1px solid rgba(73,68,84,0.3)',
+  background: 'var(--app-panel-strong)',
+  border: '1px solid var(--app-border)',
   borderRadius: '16px',
   padding: '24px',
 };
 
 const inputStyle: React.CSSProperties = {
-  background: 'rgba(255,255,255,0.05)',
-  border: '1px solid rgba(73,68,84,0.4)',
+  background: 'var(--app-panel-soft)',
+  border: '1px solid var(--app-border-strong)',
   borderRadius: '8px',
-  color: '#d4e4fa',
+  color: 'var(--app-text)',
   padding: '8px 12px',
   width: '100%',
   fontSize: '14px',
@@ -58,7 +58,7 @@ const labelStyle: React.CSSProperties = {
   fontWeight: 600,
   textTransform: 'uppercase',
   letterSpacing: '0.08em',
-  color: '#7b9ab8',
+  color: 'var(--app-text-subtle)',
   marginBottom: '4px',
   display: 'block',
 };
@@ -76,9 +76,9 @@ const btnPrimary: React.CSSProperties = {
 
 const btnGhost: React.CSSProperties = {
   background: 'transparent',
-  border: '1px solid rgba(73,68,84,0.4)',
+  border: '1px solid var(--app-border-strong)',
   borderRadius: '8px',
-  color: '#7b9ab8',
+  color: 'var(--app-text-subtle)',
   padding: '6px 12px',
   fontSize: '12px',
   cursor: 'pointer',
@@ -709,18 +709,18 @@ const ProfilePage: React.FC = () => {
 
   if (isLoading || !profile) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '300px' }}>
+      <div className="theme-shell" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '300px' }}>
         <div style={{ width: '40px', height: '40px', borderRadius: '50%', border: '3px solid rgba(73,68,84,0.3)', borderTopColor: '#d0bcff', animation: 'spin 0.8s linear infinite' }} />
       </div>
     );
   }
 
   return (
-    <div style={{ maxWidth: '900px', margin: '0 auto', padding: '24px 16px' }}>
+    <div className="theme-shell" style={{ maxWidth: '900px', margin: '0 auto', padding: '24px 16px' }}>
       {/* Page title */}
       <div style={{ marginBottom: '24px' }}>
-        <h1 style={{ color: '#d4e4fa', fontWeight: 700, fontSize: '22px', margin: 0 }}>My Profile</h1>
-        <p style={{ color: '#7b9ab8', fontSize: '13px', marginTop: '4px' }}>Your profile is the source of truth for all resume generation.</p>
+        <h1 style={{ color: 'var(--app-text)', fontWeight: 700, fontSize: '22px', margin: 0 }}>My Profile</h1>
+        <p style={{ color: 'var(--app-text-subtle)', fontSize: '13px', marginTop: '4px' }}>Your profile is the source of truth for all resume generation.</p>
       </div>
 
       {/* Completeness bar */}

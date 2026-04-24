@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { authStore } from '@/store/authStore';
-import apiClient from '@/lib/api';
+import apiClient from '../lib/api';
 
 const OAuthCallbackPage: React.FC = () => {
   const navigate = useNavigate();

@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Check, Zap, X, CheckCircle, FileText, ChevronDown, Flame, Sparkles } from 'lucide-react';
 import { authStore } from '@/store/authStore';
+import { trackEvent } from '@/lib/analytics';
 
 // TODO: map plan IDs to backend billing tiers when payment is wired
 // TODO: gate feature visibility (template count, optimization limits) from user.plan_tier
@@ -128,8 +129,8 @@ const CtaButton: React.FC<{
     return (
       <button
         disabled
-        className="w-full py-3 rounded-xl font-bold text-sm text-slate-600 cursor-default tracking-wide"
-        style={{ background: 'rgba(39,54,71,0.35)', border: '1px solid rgba(73,68,84,0.25)' }}
+        className="theme-text-subtle w-full py-3 rounded-xl font-bold text-sm cursor-default tracking-wide"
+        style={{ background: 'var(--app-panel-soft)', border: '1px solid var(--app-border)' }}
       >
         {label}
       </button>
@@ -139,8 +140,10 @@ const CtaButton: React.FC<{
     return (
       <button
         onClick={onClick}
-        className="w-full py-3 rounded-xl font-bold text-sm tracking-wide transition-all hover:bg-[#1a2e44] active:scale-[0.98]"
+        className="w-full py-3 rounded-xl font-bold text-sm tracking-wide transition-all active:scale-[0.98]"
         style={{ border: '1px solid rgba(208,188,255,0.3)', color: '#d0bcff', background: 'transparent' }}
+        onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--app-panel-soft)'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
       >
         {label}
       </button>
@@ -175,7 +178,7 @@ const FeatureRow: React.FC<{ text: string; highlighted: boolean }> = ({ text, hi
         style={{ color: highlighted ? '#4edea3' : '#3d9e77' }}
       />
     </span>
-    <span style={{ color: highlighted ? '#d4e4fa' : '#8da8c0' }}>{text}</span>
+    <span style={{ color: highlighted ? 'var(--app-text)' : 'var(--app-text-muted)' }}>{text}</span>
   </li>
 );
 
@@ -211,24 +214,16 @@ const PlanCard: React.FC<{ plan: Plan; onUpgrade: () => void }> = ({ plan, onUpg
         style={
           plan.highlighted
             ? {
-                background: 'rgba(16,32,52,1)',
+                background: 'color-mix(in srgb, var(--app-panel-strong) 82%, #d0bcff 18%)',
                 border: '1px solid rgba(208,188,255,0.28)',
                 boxShadow: '0 0 0 1px rgba(208,188,255,0.06), 0 28px 72px rgba(208,188,255,0.09)',
               }
             : {
-                background: 'rgba(13,28,45,1)',
-                border: '1px solid rgba(73,68,84,0.22)',
+                background: 'var(--app-panel-strong)',
+                border: '1px solid var(--app-border)',
               }
         }
       >
-        {/* Top gradient accent — highlighted only */}
-        {plan.highlighted && (
-          <div
-            className="h-[3px] w-full flex-shrink-0"
-            style={{ background: 'linear-gradient(90deg, #d0bcff 0%, #4edea3 100%)' }}
-          />
-        )}
-
         <div className="flex flex-col p-6">
 
           {/* ── Header block ──────────────────────────────────────────────
@@ -240,7 +235,7 @@ const PlanCard: React.FC<{ plan: Plan; onUpgrade: () => void }> = ({ plan, onUpg
             {/* Plan label */}
             <p
               className="mono-label text-[11px] font-bold tracking-[0.15em] uppercase mb-3"
-              style={{ color: plan.highlighted ? '#d0bcff' : '#64748b' }}
+              style={{ color: plan.highlighted ? '#d0bcff' : 'var(--app-text-subtle)' }}
             >
               {plan.name}
             </p>
@@ -248,19 +243,19 @@ const PlanCard: React.FC<{ plan: Plan; onUpgrade: () => void }> = ({ plan, onUpg
             {/* Price */}
             <div className="flex items-end gap-1.5 mb-3">
               <span
-                className="font-bold text-[#d4e4fa] leading-none"
+                className="theme-text font-bold leading-none"
                 style={{ fontSize: plan.highlighted ? '2.75rem' : '2.5rem' }}
               >
                 {plan.currency}{plan.price.toLocaleString('en-IN')}
               </span>
-              <span className="text-sm text-slate-500 mb-1 leading-none">/ month</span>
+              <span className="theme-text-subtle text-sm mb-1 leading-none">/ month</span>
             </div>
 
             {/* Tagline */}
             <p className="text-sm font-semibold text-[#4edea3] mb-1.5">{plan.tagline}</p>
 
             {/* Helper text */}
-            <p className="text-xs text-slate-500 leading-relaxed">{plan.helperText}</p>
+            <p className="theme-text-subtle text-xs leading-relaxed">{plan.helperText}</p>
 
             {/* Spacer: pushes fire pill to the bottom of this fixed-height block */}
             <div className="flex-1" />
@@ -290,7 +285,7 @@ const PlanCard: React.FC<{ plan: Plan; onUpgrade: () => void }> = ({ plan, onUpg
           />
 
           {/* ── Divider ─────────────────────────────────────────────────── */}
-          <div className="border-t border-[#1e3248] my-5" />
+          <div className="my-5 border-t" style={{ borderColor: 'var(--app-border)' }} />
 
           {/* ── Visible features ────────────────────────────────────────── */}
           <ul className="space-y-3">
@@ -304,7 +299,7 @@ const PlanCard: React.FC<{ plan: Plan; onUpgrade: () => void }> = ({ plan, onUpg
             <button
               onClick={() => setExpanded((v) => !v)}
               className="flex items-center gap-1.5 mt-4 text-xs font-semibold transition-colors w-fit"
-              style={{ color: plan.highlighted ? '#a89fd4' : '#4e6880' }}
+              style={{ color: plan.highlighted ? '#a89fd4' : 'var(--app-text-subtle)' }}
             >
               <ChevronDown
                 className="w-3.5 h-3.5 transition-transform duration-300"
@@ -333,8 +328,8 @@ const PlanCard: React.FC<{ plan: Plan; onUpgrade: () => void }> = ({ plan, onUpg
           {/* ── Stats — Interview Cracker, always below features ──────────── */}
           {plan.stats && (
             <>
-              <div className="border-t border-[#1e3248] mt-5 mb-4" />
-              <p className="mono-label text-[10px] font-bold uppercase tracking-widest text-slate-600 mb-3">
+              <div className="mt-5 mb-4 border-t" style={{ borderColor: 'var(--app-border)' }} />
+              <p className="theme-text-subtle mono-label text-[10px] font-bold uppercase tracking-widest mb-3">
                 Users report
               </p>
               <div className="grid grid-cols-2 gap-2.5">
@@ -348,7 +343,7 @@ const PlanCard: React.FC<{ plan: Plan; onUpgrade: () => void }> = ({ plan, onUpg
                     }}
                   >
                     <p className="text-xl font-bold text-[#4edea3] leading-none mb-1">{s.value}</p>
-                    <p className="text-[10px] text-slate-500 leading-tight">{s.label}</p>
+                    <p className="theme-text-subtle text-[10px] leading-tight">{s.label}</p>
                   </div>
                 ))}
               </div>
@@ -369,11 +364,18 @@ const SubscriptionPage: React.FC = () => {
   const [waitlistEmail, setWaitlistEmail] = useState(user?.email || '');
   const [waitlistDone, setWaitlistDone] = useState(false);
 
-  const openModal = () => setUpgradeModal(true);
+  useEffect(() => {
+    trackEvent('pricing_viewed', { funnelStep: 'pricing_viewed' });
+  }, []);
+
+  const openModal = () => {
+    trackEvent('checkout_started', { funnelStep: 'checkout_started' });
+    setUpgradeModal(true);
+  };
   const closeModal = () => { setUpgradeModal(false); setWaitlistDone(false); };
 
   return (
-    <div className="min-h-screen bg-[#051424]">
+    <div className="theme-shell min-h-screen">
       <div className="max-w-5xl mx-auto px-4 py-10 lg:py-14">
 
         {/* ── Page Header ─────────────────────────────────────────────── */}
@@ -392,13 +394,13 @@ const SubscriptionPage: React.FC = () => {
             <span className="text-xs text-slate-500">· Prices increasing soon</span>
           </div>
 
-          <h2 className="text-4xl lg:text-5xl font-bold tracking-tight text-[#d4e4fa] mb-3">
+          <h2 className="theme-text mb-3 text-4xl font-bold tracking-tight lg:text-5xl">
             Get Interview Calls Faster 🚀
           </h2>
-          <p className="text-base text-[#9cb3cc] mb-2 max-w-lg mx-auto">
+          <p className="theme-text-muted mx-auto mb-2 max-w-lg text-base">
             Choose a plan that actually helps you get hired
           </p>
-          <p className="text-sm text-slate-500 max-w-xl mx-auto leading-relaxed">
+          <p className="theme-text-subtle mx-auto max-w-xl text-sm leading-relaxed">
             From first-time applicants to serious job seekers — tailor resumes,
             improve ATS fit, and prepare for interviews.
           </p>
@@ -413,19 +415,19 @@ const SubscriptionPage: React.FC = () => {
         </div>
 
         {/* Reassurance line */}
-        <p className="text-center text-xs text-slate-600 mb-14">
+        <p className="theme-text-subtle mb-14 text-center text-xs">
           No credit card required for Starter · Cancel anytime
         </p>
 
         {/* ── Resume Templates Section ────────────────────────────────── */}
         <div
           className="rounded-2xl overflow-hidden"
-          style={{ border: '1px solid rgba(73,68,84,0.22)' }}
+          style={{ border: '1px solid var(--app-border)' }}
         >
           {/* Header */}
           <div
-            className="flex items-center gap-3 px-6 py-4 border-b border-[#1e3248]"
-            style={{ background: 'rgba(13,28,45,1)' }}
+            className="flex items-center gap-3 px-6 py-4 border-b"
+            style={{ background: 'var(--app-panel-strong)', borderColor: 'var(--app-border)' }}
           >
             <div
               className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
@@ -434,15 +436,15 @@ const SubscriptionPage: React.FC = () => {
               <FileText className="w-3.5 h-3.5 text-[#d0bcff]" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-[#d4e4fa]">Resume Templates Included with Your Plan</h3>
-              <p className="text-xs text-slate-500">Professionally designed, ATS-optimised for every industry</p>
+              <h3 className="theme-text text-sm font-bold">Resume Templates Included with Your Plan</h3>
+              <p className="theme-text-subtle text-xs">Professionally designed, ATS-optimised for every industry</p>
             </div>
           </div>
 
           {/* Three columns */}
           <div
-            className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-[#1e3248]"
-            style={{ background: 'rgba(10,22,38,1)' }}
+            className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x"
+            style={{ background: 'var(--app-panel)', borderColor: 'var(--app-border)' }}
           >
             {PLANS.map((plan) => (
               <div key={plan.id} className="p-5">
@@ -450,7 +452,7 @@ const SubscriptionPage: React.FC = () => {
                 <div className="flex items-center justify-between mb-3">
                   <p
                     className="mono-label text-[11px] font-bold uppercase tracking-widest"
-                    style={{ color: plan.highlighted ? '#d0bcff' : '#64748b' }}
+                    style={{ color: plan.highlighted ? '#d0bcff' : 'var(--app-text-subtle)' }}
                   >
                     {plan.name}
                   </p>
@@ -459,7 +461,7 @@ const SubscriptionPage: React.FC = () => {
                     style={
                       plan.highlighted
                         ? { background: 'linear-gradient(135deg, #d0bcff 0%, #4edea3 100%)', color: '#340080' }
-                        : { background: 'rgba(39,54,71,0.7)', color: '#64748b', border: '1px solid rgba(73,68,84,0.3)' }
+                        : { background: 'var(--app-panel-soft)', color: 'var(--app-text-subtle)', border: '1px solid var(--app-border)' }
                     }
                   >
                     {plan.templateCount} {plan.templateCount === '1' ? 'template' : 'templates'}
@@ -477,21 +479,21 @@ const SubscriptionPage: React.FC = () => {
                             WebkitBackgroundClip: 'text',
                             WebkitTextFillColor: 'transparent',
                           }
-                        : { color: '#d4e4fa' }
+                        : { color: 'var(--app-text)' }
                     }
                   >
                     {plan.templateCount}
                   </span>
                   <span
                     className="text-xs font-semibold"
-                    style={{ color: plan.highlighted ? '#a89fd4' : '#64748b' }}
+                    style={{ color: plan.highlighted ? '#a89fd4' : 'var(--app-text-subtle)' }}
                   >
                     {plan.templateQuality}
                   </span>
                 </div>
 
                 {/* Template label */}
-                <p className="text-xs text-slate-500 leading-relaxed mb-3">{plan.templateLabel}</p>
+                <p className="theme-text-subtle text-xs leading-relaxed mb-3">{plan.templateLabel}</p>
 
                 {/* Style chips — max 3 */}
                 <div className="flex flex-wrap gap-1.5">
@@ -502,7 +504,7 @@ const SubscriptionPage: React.FC = () => {
                       style={
                         plan.highlighted
                           ? { background: 'rgba(208,188,255,0.1)', border: '1px solid rgba(208,188,255,0.18)', color: '#c4b0f5' }
-                          : { background: 'rgba(39,54,71,0.5)', border: '1px solid rgba(73,68,84,0.28)', color: '#64748b' }
+                          : { background: 'var(--app-panel-soft)', border: '1px solid var(--app-border)', color: 'var(--app-text-subtle)' }
                       }
                     >
                       {t}

@@ -275,7 +275,7 @@ const ResumeTemplatePreview: React.FC<Props> = ({ template: t, selected, locked,
           style={{
             position: 'absolute',
             inset: 0,
-            background: 'rgba(5,20,36,0.58)',
+            background: 'color-mix(in srgb, var(--app-bg) 58%, transparent)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -322,14 +322,14 @@ const ResumeTemplatePreview: React.FC<Props> = ({ template: t, selected, locked,
       )}
 
       {/* Name + description footer */}
-      <div style={{ padding: '9px 11px 10px', background: 'rgba(13,28,45,0.88)' }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: '#d4e4fa', marginBottom: 2 }}>
+      <div style={{ padding: '9px 11px 10px', background: 'var(--app-panel-strong)' }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--app-text)', marginBottom: 2 }}>
           {t.name}
         </div>
         <div
           style={{
             fontSize: 10,
-            color: '#6b7d8e',
+            color: 'var(--app-text-subtle)',
             lineHeight: 1.4,
             marginBottom: 6,
             display: '-webkit-box',

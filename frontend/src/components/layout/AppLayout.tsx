@@ -5,6 +5,7 @@ import {
   HelpCircle, LogOut, Search, Menu, X,
 } from 'lucide-react';
 import { authStore } from '@/store/authStore';
+import { resolveThemeMode, useThemeStore } from '@/store/themeStore';
 
 const navItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
@@ -17,7 +18,14 @@ const navItems = [
 const AppLayout: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { user, logout } = authStore();
+  const themeMode = useThemeStore((state) => state.themeMode);
   const navigate = useNavigate();
+
+  const handleLogout = () => {
+    logout();
+    setSidebarOpen(false);
+    navigate('/login', { replace: true });
+  };
 
   const initials =
     `${user?.first_name?.[0] ?? ''}${user?.last_name?.[0] ?? ''}`.toUpperCase() ||
@@ -25,9 +33,12 @@ const AppLayout: React.FC = () => {
     '?';
   const displayName =
     `${user?.first_name ?? ''} ${user?.last_name ?? ''}`.trim() || user?.username || '';
+  const resolvedTheme = resolveThemeMode(themeMode);
+  const logoSrc =
+    resolvedTheme === 'light' ? '/brand/logo-lockup-light.svg' : '/brand/logo-lockup-dark.svg';
 
   return (
-    <div className="min-h-screen bg-[#051424]">
+    <div className="theme-shell min-h-screen">
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div
@@ -39,30 +50,26 @@ const AppLayout: React.FC = () => {
       {/* ── SIDEBAR ─────────────────────────────────────────────────── */}
       <aside
         className={`fixed left-0 top-0 h-screen w-64 z-50 flex flex-col py-6
-          border-r border-[#273647]/20 transition-transform duration-300 ease-in-out
+          border-r transition-transform duration-300 ease-in-out
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
-        style={{ background: 'rgba(13,28,45,0.92)', backdropFilter: 'blur(20px)' }}
+        style={{ background: 'var(--app-panel-strong)', borderColor: 'var(--app-border)', backdropFilter: 'blur(20px)' }}
       >
         {/* Logo */}
         <div className="px-6 mb-10 flex items-center justify-between">
           <Link to="/dashboard" className="flex items-center gap-3 no-underline cursor-pointer">
-            <div
-              className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-              style={{ background: 'linear-gradient(135deg, #d0bcff 0%, #4edea3 100%)' }}
-            >
-              <Sparkles className="w-4 h-4 text-[#340080]" />
-            </div>
             <div>
-              <h1 className="text-xl font-bold tracking-tighter genie-gradient-text">
-                RoleGenie
-              </h1>
+              <img
+                src={logoSrc}
+                alt="RoleGenie"
+                className="brand-lockup-md"
+              />
               <p className="mono-label text-[10px] uppercase tracking-widest text-[#4edea3]/70">
                 AI Intelligence
               </p>
             </div>
           </Link>
           <button
-            className="lg:hidden text-slate-400 hover:text-white"
+            className="theme-text-subtle lg:hidden transition-colors hover:text-[var(--app-text)]"
             onClick={() => setSidebarOpen(false)}
           >
             <X className="w-5 h-5" />
@@ -79,9 +86,12 @@ const AppLayout: React.FC = () => {
               className={({ isActive }) =>
                 `flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 font-medium tracking-tight
                 ${isActive
-                  ? 'text-[#d0bcff] bg-[#273647]/60'
-                  : 'text-slate-400 hover:text-slate-100 hover:bg-[#273647]/40'}`
+                  ? 'theme-text-primary'
+                  : 'theme-text-subtle hover:text-[var(--app-text)]'}`
               }
+              style={({ isActive }) => ({
+                background: isActive ? 'var(--app-panel)' : 'transparent',
+              })}
             >
               <Icon className="w-5 h-5 flex-shrink-0" />
               <span>{label}</span>
@@ -94,15 +104,15 @@ const AppLayout: React.FC = () => {
           <div
             className="p-4 rounded-xl mb-4"
             style={{
-              background: 'rgba(39,54,71,0.6)',
+              background: 'var(--app-panel)',
               backdropFilter: 'blur(20px)',
-              border: '1px solid rgba(208,188,255,0.1)',
+              border: '1px solid var(--app-border)',
             }}
           >
-            <p className="mono-label text-xs font-bold tracking-widest uppercase mb-1 text-[#d0bcff]">
+            <p className="mono-label theme-text-primary text-xs font-bold tracking-widest uppercase mb-1">
               Limit Reached
             </p>
-            <p className="text-sm text-[#cbc3d7] mb-3">
+            <p className="theme-text-muted text-sm mb-3">
               Unlock 100+ AI optimizations per month.
             </p>
             <button
@@ -124,7 +134,7 @@ const AppLayout: React.FC = () => {
         {/* Left: hamburger + search */}
         <div className="flex items-center gap-3">
           <button
-            className="lg:hidden text-slate-400 hover:text-white p-1"
+            className="theme-text-subtle lg:hidden p-1 hover:text-[var(--app-text)]"
             onClick={() => setSidebarOpen(true)}
           >
             <Menu className="w-6 h-6" />
@@ -132,16 +142,16 @@ const AppLayout: React.FC = () => {
           <div
             className="hidden md:flex items-center gap-2 rounded-full px-4 py-1.5 w-72 lg:w-96"
             style={{
-              background: 'rgba(39,54,71,0.4)',
+              background: 'var(--app-panel-soft)',
               backdropFilter: 'blur(12px)',
-              border: '1px solid rgba(73,68,84,0.15)',
+              border: '1px solid var(--app-border)',
             }}
           >
-            <Search className="w-4 h-4 text-slate-500 flex-shrink-0" />
+            <Search className="theme-text-subtle w-4 h-4 flex-shrink-0" />
             <input
               type="text"
               placeholder="Search resumes, skills, or optimizations..."
-              className="bg-transparent border-none focus:outline-none text-sm w-full text-[#d4e4fa] placeholder:text-slate-500"
+              className="theme-text w-full border-none bg-transparent text-sm placeholder:text-slate-400 focus:outline-none"
             />
           </div>
         </div>
@@ -150,8 +160,8 @@ const AppLayout: React.FC = () => {
         {user && (
           <div className="flex items-center gap-4">
             <div className="hidden sm:block text-right">
-              <p className="text-xs font-bold text-[#d4e4fa] leading-tight">{displayName}</p>
-              <p className="mono-label text-[10px] text-[#d0bcff] uppercase">
+              <p className="theme-text text-xs font-bold leading-tight">{displayName}</p>
+              <p className="mono-label theme-text-primary text-[10px] uppercase">
                 {user.email?.split('@')[0]}
               </p>
             </div>
@@ -167,21 +177,27 @@ const AppLayout: React.FC = () => {
                 className="absolute right-0 top-11 w-48 rounded-xl py-1 shadow-2xl z-10
                   opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-150"
                 style={{
-                  background: 'rgba(13,28,45,0.97)',
+                  background: 'var(--app-panel-strong)',
                   backdropFilter: 'blur(20px)',
-                  border: '1px solid rgba(39,54,71,0.5)',
+                  border: '1px solid var(--app-border)',
                 }}
               >
                 <button
                   onClick={() => navigate('/settings')}
-                  className="flex w-full items-center gap-3 px-4 py-2 text-sm text-slate-300 hover:bg-[#273647]/50 hover:text-white transition-colors"
+                  className="theme-text-muted flex w-full items-center gap-3 px-4 py-2 text-sm transition-colors hover:text-[var(--app-text)]"
+                  style={{ background: 'transparent' }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--app-panel)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
                 >
                   <Settings className="h-4 w-4" />
                   Settings
                 </button>
                 <button
-                  onClick={logout}
-                  className="flex w-full items-center gap-3 px-4 py-2 text-sm text-slate-300 hover:bg-[#273647]/50 hover:text-white transition-colors border-t border-[#273647]/50"
+                  onClick={handleLogout}
+                  className="theme-text-muted flex w-full items-center gap-3 border-t px-4 py-2 text-sm transition-colors hover:text-[var(--app-text)]"
+                  style={{ background: 'transparent', borderColor: 'var(--app-border)' }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--app-panel)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
                 >
                   <LogOut className="h-4 w-4" />
                   Logout
@@ -193,18 +209,18 @@ const AppLayout: React.FC = () => {
       </header>
 
       {/* ── MAIN CONTENT ────────────────────────────────────────────── */}
-      <main className="pt-16 min-h-screen bg-[#051424] lg:ml-64">
+      <main className="theme-shell pt-16 min-h-screen lg:ml-64">
         <Outlet />
       </main>
 
       {/* Background ambient glows */}
       <div
         className="fixed top-0 right-0 w-1/2 h-1/2 rounded-full pointer-events-none -z-10"
-        style={{ background: 'rgba(208,188,255,0.03)', filter: 'blur(120px)' }}
+        style={{ background: 'var(--app-glow-primary)', filter: 'blur(120px)' }}
       />
       <div
         className="fixed bottom-0 left-64 w-2/5 h-2/5 rounded-full pointer-events-none -z-10"
-        style={{ background: 'rgba(78,222,163,0.03)', filter: 'blur(100px)' }}
+        style={{ background: 'var(--app-glow-secondary)', filter: 'blur(100px)' }}
       />
     </div>
   );
