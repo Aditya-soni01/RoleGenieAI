@@ -84,7 +84,17 @@ def _normalize_data(raw: Dict[str, Any]) -> Dict[str, Any]:
         else raw
     )
 
-    contact = data.get("contact", "")
+    personal_info = raw.get("personalInfo") if isinstance(raw, dict) else None
+    if isinstance(personal_info, dict):
+        contact = data.get("contact") or {
+            "email": personal_info.get("email", ""),
+            "phone": personal_info.get("phone", ""),
+            "location": personal_info.get("location", ""),
+            "linkedin": personal_info.get("linkedin", ""),
+            "portfolio": personal_info.get("portfolio", ""),
+        }
+    else:
+        contact = data.get("contact", "")
     if isinstance(contact, dict):
         parts = []
         for key in ("email", "phone", "location"):
@@ -100,24 +110,30 @@ def _normalize_data(raw: Dict[str, Any]) -> Dict[str, Any]:
     else:
         contact_str = str(contact)
 
-    tech_skills = data.get("technical_skills") or data.get("skills") or []
-    prof_skills = data.get("professional_skills") or []
+    tech_skills = data.get("technical_skills") or data.get("technicalSkills") or data.get("skills") or []
+    prof_skills = data.get("professional_skills") or data.get("professionalSkills") or []
     skills = tech_skills + prof_skills
 
     experience = []
     for exp in (data.get("experience") or []):
+        if not isinstance(exp, dict):
+            continue
         sub_projects = exp.get("projects") or []
         if sub_projects:
             all_bullets = []
             for proj in sub_projects:
-                all_bullets.extend(proj.get("bullets") or [])
+                if isinstance(proj, dict):
+                    all_bullets.extend(proj.get("bullets") or [])
             achievements = all_bullets
         else:
             achievements = exp.get("bullets") or exp.get("achievements") or []
+        start = (exp.get("startDate") or exp.get("start_date") or "").strip()
+        end = (exp.get("endDate") or exp.get("end_date") or "").strip()
+        duration = exp.get("duration") or (" - ".join([p for p in [start, end] if p]).strip(" -"))
         experience.append({
-            "title": exp.get("title", ""),
+            "title": exp.get("title") or exp.get("jobTitle") or "",
             "company": exp.get("company", ""),
-            "duration": exp.get("duration", ""),
+            "duration": duration or "",
             "achievements": achievements,
             "projects": sub_projects,
         })
@@ -129,6 +145,8 @@ def _normalize_data(raw: Dict[str, Any]) -> Dict[str, Any]:
 
     projects = []
     for proj in (data.get("projects") or []):
+        if not isinstance(proj, dict):
+            continue
         bullets = proj.get("bullets") or []
         desc = proj.get("description") or (bullets[0] if bullets else "")
         techs = proj.get("technologies", [])
@@ -137,16 +155,25 @@ def _normalize_data(raw: Dict[str, Any]) -> Dict[str, Any]:
         projects.append({"name": proj.get("name", ""), "description": desc, "technologies": techs})
 
     return {
-        "full_name": data.get("full_name", ""),
+        "full_name": data.get("full_name") or (personal_info or {}).get("fullName", ""),
         "contact": contact_str,
-        "summary": data.get("professional_summary") or data.get("summary", ""),
+        "summary": (
+            data.get("professional_summary")
+            or data.get("professionalSummary")
+            or data.get("summary", "")
+            or raw.get("professionalSummary", "")
+        ),
         "skills": skills,
         "technical_skills": tech_skills,
         "professional_skills": prof_skills,
         "experience": experience,
         "education": education,
-        "projects": projects,
-        "certifications": data.get("certifications") or [],
+        "projects": projects or raw.get("projects") or [],
+        "certifications": [
+            c.get("name", "") if isinstance(c, dict) else str(c)
+            for c in (data.get("certifications") or raw.get("certifications") or [])
+            if c
+        ],
     }
 
 
@@ -225,6 +252,193 @@ def _profile_has_content(profile_data: dict) -> bool:
     skills = profile_data.get("skills", {})
     total_skills = sum(len(v) for v in skills.values())
     return has_experience or total_skills >= 3
+
+
+def _dedupe_keep_order(items: List[str]) -> List[str]:
+    seen = set()
+    out: List[str] = []
+    for item in items:
+        if not isinstance(item, str):
+            continue
+        cleaned = item.strip()
+        if not cleaned:
+            continue
+        if cleaned in seen:
+            continue
+        seen.add(cleaned)
+        out.append(cleaned)
+    return out
+
+
+def _collect_profile_fallback_bullets(profile_data: dict) -> Dict[str, List[str]]:
+    fallback: Dict[str, List[str]] = {}
+    for exp in profile_data.get("experiences", []) or []:
+        if not isinstance(exp, dict):
+            continue
+        key = f"{(exp.get('title') or '').strip().lower()}::{(exp.get('company') or '').strip().lower()}"
+        bullets: List[str] = []
+        for proj in exp.get("projects") or []:
+            if isinstance(proj, dict):
+                bullets.extend(proj.get("bullets") or [])
+        if not bullets and exp.get("description"):
+            bullets.append(str(exp.get("description")))
+        fallback[key] = _dedupe_keep_order(bullets)
+    return fallback
+
+
+def _split_duration(duration: str) -> tuple[str, str]:
+    if not duration:
+        return "", ""
+    text = str(duration).strip()
+    for sep in [" - ", " – ", " — ", " to "]:
+        if sep in text:
+            start, end = text.split(sep, 1)
+            return start.strip(), end.strip()
+    return text, ""
+
+
+def _build_structured_optimized_resume(
+    optimized: Dict[str, Any],
+    analysis: Dict[str, Any],
+    template_id: str,
+    profile_data: Dict[str, Any],
+) -> tuple[Dict[str, Any], Dict[str, Any]]:
+    optimized = dict(optimized or {})
+    analysis = dict(analysis or {})
+
+    fallback_bullets = _collect_profile_fallback_bullets(profile_data)
+    canonical_experience: List[Dict[str, Any]] = []
+
+    for exp in optimized.get("experience") or []:
+        if not isinstance(exp, dict):
+            continue
+        title = (exp.get("title") or exp.get("jobTitle") or "").strip()
+        company = (exp.get("company") or "").strip()
+        location = (exp.get("location") or "").strip()
+        start_date = (exp.get("startDate") or exp.get("start_date") or "").strip()
+        end_date = (exp.get("endDate") or exp.get("end_date") or "").strip()
+        duration = (exp.get("duration") or "").strip()
+
+        if not (start_date or end_date):
+            start_date, end_date = _split_duration(duration)
+        if not duration and (start_date or end_date):
+            duration = " - ".join([p for p in [start_date, end_date] if p]).strip()
+
+        bullets: List[str] = []
+        bullets.extend(exp.get("bullets") or [])
+        bullets.extend(exp.get("achievements") or [])
+        for proj in exp.get("projects") or []:
+            if isinstance(proj, dict):
+                bullets.extend(proj.get("bullets") or [])
+        bullets = _dedupe_keep_order(bullets)
+
+        if not bullets:
+            key = f"{title.lower()}::{company.lower()}"
+            bullets = fallback_bullets.get(key, [])
+        if not bullets and exp.get("description"):
+            bullets = _dedupe_keep_order([str(exp.get("description"))])
+
+        canonical_experience.append(
+            {
+                "title": title,
+                "jobTitle": title,
+                "company": company,
+                "location": location,
+                "startDate": start_date,
+                "endDate": end_date,
+                "duration": duration,
+                "bullets": bullets,
+                "projects": exp.get("projects") or [],
+            }
+        )
+
+    if not canonical_experience:
+        for exp in profile_data.get("experiences", []) or []:
+            if not isinstance(exp, dict):
+                continue
+            start_date = (exp.get("start_date") or "").strip()
+            end_date = (exp.get("end_date") or "").strip()
+            duration = " - ".join([p for p in [start_date, end_date] if p]).strip()
+            key = f"{(exp.get('title') or '').strip().lower()}::{(exp.get('company') or '').strip().lower()}"
+            canonical_experience.append(
+                {
+                    "title": exp.get("title", ""),
+                    "jobTitle": exp.get("title", ""),
+                    "company": exp.get("company", ""),
+                    "location": exp.get("location", ""),
+                    "startDate": start_date,
+                    "endDate": end_date,
+                    "duration": duration,
+                    "bullets": fallback_bullets.get(key, []),
+                    "projects": exp.get("projects") or [],
+                }
+            )
+
+    contact = optimized.get("contact")
+    if isinstance(contact, dict):
+        contact_obj = {
+            "email": contact.get("email", ""),
+            "phone": contact.get("phone", ""),
+            "location": contact.get("location", ""),
+            "linkedin": contact.get("linkedin", ""),
+            "portfolio": contact.get("portfolio", ""),
+        }
+    else:
+        contact_obj = {
+            "email": "",
+            "phone": "",
+            "location": "",
+            "linkedin": "",
+            "portfolio": "",
+        }
+
+    tech_skills = optimized.get("technical_skills") or optimized.get("technicalSkills") or []
+    prof_skills = optimized.get("professional_skills") or optimized.get("professionalSkills") or []
+    all_skills = _dedupe_keep_order([*tech_skills, *prof_skills, *(optimized.get("skills") or [])])
+
+    optimized["experience"] = canonical_experience
+    optimized["templateId"] = template_id
+    optimized["template_id"] = template_id
+
+    structured = {
+        "personalInfo": {
+            "fullName": optimized.get("full_name", ""),
+            "email": contact_obj["email"],
+            "phone": contact_obj["phone"],
+            "location": contact_obj["location"],
+            "linkedin": contact_obj["linkedin"],
+            "portfolio": contact_obj["portfolio"],
+        },
+        "professionalSummary": optimized.get("professional_summary", ""),
+        "skills": all_skills,
+        "experience": [
+            {
+                "jobTitle": e.get("jobTitle", ""),
+                "company": e.get("company", ""),
+                "location": e.get("location", ""),
+                "startDate": e.get("startDate", ""),
+                "endDate": e.get("endDate", ""),
+                "bullets": e.get("bullets", []),
+            }
+            for e in canonical_experience
+        ],
+        "projects": optimized.get("projects") or [],
+        "education": optimized.get("education") or [],
+        "certifications": optimized.get("certifications") or [],
+        "templateId": template_id,
+    }
+
+    ats_score = optimized.get("ats_score_after")
+    if ats_score is None:
+        ats_score = analysis.get("ats_score_after") or analysis.get("ats_score_before")
+    if ats_score is not None:
+        structured["atsScore"] = ats_score
+
+    match_score = optimized.get("match_score") or analysis.get("match_score")
+    if match_score is not None:
+        structured["matchScore"] = match_score
+
+    return optimized, structured
 
 
 def _hydrate_resume_optimization_metadata(resume, db: Session):
@@ -375,7 +589,7 @@ def optimize_resume(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resume not found")
 
     # Validate template access
-    tid = template_id or DEFAULT_TEMPLATE
+    tid = template_id or request.query_params.get("templateId") or DEFAULT_TEMPLATE
     _assert_template_access(current_user, tid)
 
     jd_text = job_description or ""
@@ -454,6 +668,13 @@ def optimize_resume(
             detail=AIService.summarize_provider_error(e),
         )
 
+    optimized, structured_resume = _build_structured_optimized_resume(
+        optimized=optimized,
+        analysis=analysis,
+        template_id=tid,
+        profile_data=profile_data,
+    )
+
     result = {
         "analysis": {
             **analysis,
@@ -465,8 +686,10 @@ def optimize_resume(
             "company_name": optimized.get("company_name") or resolved_company,
         },
         "template_id": tid,
+        "templateId": tid,
         "job_title": resolved_title,
         "company": resolved_company,
+        **structured_resume,
     }
     ResumeService.update_optimized(db, resume, json.dumps(result, ensure_ascii=False))
     AnalyticsService.log_event(
@@ -500,7 +723,13 @@ def download_docx(
         raise HTTPException(status_code=422, detail="Optimized content is not valid JSON")
 
     # Resolve template_id — prefer query param, then stored value, then default
-    tid = template_id or raw.get("template_id") or DEFAULT_TEMPLATE
+    tid = (
+        template_id
+        or request.query_params.get("templateId")
+        or raw.get("template_id")
+        or raw.get("templateId")
+        or DEFAULT_TEMPLATE
+    )
     _assert_template_access(current_user, tid)
 
     data = _normalize_data(raw)
@@ -552,7 +781,13 @@ def download_pdf(
     except json.JSONDecodeError:
         raise HTTPException(status_code=422, detail="Optimized content is not valid JSON")
 
-    tid = template_id or raw.get("template_id") or DEFAULT_TEMPLATE
+    tid = (
+        template_id
+        or request.query_params.get("templateId")
+        or raw.get("template_id")
+        or raw.get("templateId")
+        or DEFAULT_TEMPLATE
+    )
     _assert_template_access(current_user, tid)
 
     data = _normalize_data(raw)
