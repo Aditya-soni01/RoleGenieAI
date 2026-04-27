@@ -3,33 +3,19 @@ import {
   getResumeTemplate,
   type ResumeOutputLayout,
 } from '@/data/resumeTemplateRegistry';
-
-interface OptimizedResume {
-  full_name: string;
-  contact: { email: string; phone: string; location: string; linkedin: string; portfolio: string };
-  professional_summary: string;
-  technical_skills: string[];
-  professional_skills: string[];
-  experience: Array<{ title: string; company: string; location: string; duration: string; bullets: string[] }>;
-  education: Array<{ degree: string; institution: string; year: string; details: string }>;
-  certifications: string[];
-  projects: Array<{ name: string; technologies: string; bullets: string[] }>;
-  ats_score_after: number;
-  keywords_added: string[];
-  key_improvements: string[];
-}
+import type { ResumePreviewData } from '@/types/resumePreview';
 
 interface OptimizedResumeRendererProps {
-  data: OptimizedResume;
+  data: ResumePreviewData;
   templateId: string;
 }
 
-const contactItems = (data: OptimizedResume) => [
-  data.contact?.email,
-  data.contact?.phone,
-  data.contact?.location,
-  data.contact?.linkedin,
-  data.contact?.portfolio,
+const contactItems = (data: ResumePreviewData) => [
+  data.personalInfo?.email,
+  data.personalInfo?.phone,
+  data.personalInfo?.location,
+  data.personalInfo?.linkedin,
+  data.personalInfo?.portfolio,
 ].filter(Boolean);
 
 const ResumeSection: React.FC<{
@@ -75,7 +61,7 @@ const BulletList: React.FC<{ items?: string[]; dense?: boolean }> = ({ items = [
 );
 
 const Header: React.FC<{
-  data: OptimizedResume;
+  data: ResumePreviewData;
   variant: ResumeOutputLayout;
 }> = ({ data, variant }) => {
   const contacts = contactItems(data);
@@ -86,7 +72,7 @@ const Header: React.FC<{
   if (executive) {
     return (
       <header className="-mx-10 -mt-10 mb-7 bg-[#111827] px-10 py-7 text-center text-white">
-        <h1 className="font-serif text-3xl font-bold leading-tight">{data.full_name}</h1>
+        <h1 className="font-serif text-3xl font-bold leading-tight">{data.personalInfo.fullName}</h1>
         {contacts.length > 0 && (
           <p className="mt-2 text-[11px] leading-relaxed text-[#dbeafe]">{contacts.join(' | ')}</p>
         )}
@@ -97,7 +83,7 @@ const Header: React.FC<{
   if (variant === 'modern-block') {
     return (
       <header className="-mx-10 -mt-10 mb-7 border-b-4 border-[#1d4ed8] bg-[#dbeafe] px-10 py-7">
-        <h1 className="text-3xl font-extrabold leading-tight text-[#111827]">{data.full_name}</h1>
+        <h1 className="text-3xl font-extrabold leading-tight text-[#111827]">{data.personalInfo.fullName}</h1>
         {contacts.length > 0 && (
           <p className="mt-2 text-xs leading-relaxed text-[#374151]">{contacts.join(' | ')}</p>
         )}
@@ -119,7 +105,7 @@ const Header: React.FC<{
           'leading-tight text-[#111827]',
         ].join(' ')}
       >
-        {data.full_name}
+        {data.personalInfo.fullName}
       </h1>
       {contacts.length > 0 && (
         <p className={compact ? 'mt-1 text-[11px] text-[#4b5563]' : 'mt-2 text-xs leading-relaxed text-[#4b5563]'}>
@@ -131,67 +117,47 @@ const Header: React.FC<{
 };
 
 const SkillsBlock: React.FC<{
-  data: OptimizedResume;
+  data: ResumePreviewData;
   variant: ResumeOutputLayout;
   sidebar?: boolean;
 }> = ({ data, variant, sidebar = false }) => {
-  const technical = data.technical_skills ?? [];
-  const professional = data.professional_skills ?? [];
+  const skills = data.skills ?? [];
   const dense = variant === 'compact-ats' || variant === 'corporate-compact';
 
-  if (!technical.length && !professional.length) return null;
+  if (!skills.length) return null;
 
   if (sidebar) {
     return (
       <div className="space-y-4 text-xs">
-        {technical.length > 0 && (
-          <div>
-            <p className="mb-2 text-[10px] font-extrabold uppercase tracking-[0.16em] text-[#111827]">Technical</p>
-            <p className="leading-relaxed text-[#374151]">{technical.join(' | ')}</p>
-          </div>
-        )}
-        {professional.length > 0 && (
-          <div>
-            <p className="mb-2 text-[10px] font-extrabold uppercase tracking-[0.16em] text-[#111827]">Professional</p>
-            <p className="leading-relaxed text-[#374151]">{professional.join(' | ')}</p>
-          </div>
-        )}
+        <div>
+          <p className="mb-2 text-[10px] font-extrabold uppercase tracking-[0.16em] text-[#111827]">Skills</p>
+          <p className="leading-relaxed text-[#374151]">{skills.join(' | ')}</p>
+        </div>
       </div>
     );
   }
 
   return (
     <ResumeSection title="Skills" variant={variant}>
-      <div className={dense ? 'space-y-1 text-[11px]' : 'space-y-2 text-xs'}>
-        {technical.length > 0 && (
-          <p className="leading-relaxed text-[#374151]">
-            <span className="font-bold text-[#111827]">Technical: </span>
-            {technical.join(' | ')}
-          </p>
-        )}
-        {professional.length > 0 && (
-          <p className="leading-relaxed text-[#374151]">
-            <span className="font-bold text-[#111827]">Professional: </span>
-            {professional.join(' | ')}
-          </p>
-        )}
-      </div>
-    </ResumeSection>
-  );
-};
-
-const SummaryBlock: React.FC<{ data: OptimizedResume; variant: ResumeOutputLayout }> = ({ data, variant }) => {
-  if (!data.professional_summary) return null;
-  return (
-    <ResumeSection title={variant === 'minimal-airy' ? 'Profile' : variant === 'executive-clean' ? 'Executive Profile' : 'Professional Summary'} variant={variant}>
-      <p className={variant === 'compact-ats' ? 'text-xs leading-relaxed text-[#374151]' : 'text-sm leading-relaxed text-[#374151]'}>
-        {data.professional_summary}
+      <p className={dense ? 'text-[11px] leading-relaxed text-[#374151]' : 'text-xs leading-relaxed text-[#374151]'}>
+        {skills.join(' | ')}
       </p>
     </ResumeSection>
   );
 };
 
-const ExperienceBlock: React.FC<{ data: OptimizedResume; variant: ResumeOutputLayout }> = ({ data, variant }) => {
+const SummaryBlock: React.FC<{ data: ResumePreviewData; variant: ResumeOutputLayout }> = ({ data, variant }) => {
+  if (!data.professionalSummary) return null;
+  return (
+    <ResumeSection title={variant === 'minimal-airy' ? 'Profile' : variant === 'executive-clean' ? 'Executive Profile' : 'Professional Summary'} variant={variant}>
+      <p className={variant === 'compact-ats' ? 'text-xs leading-relaxed text-[#374151]' : 'text-sm leading-relaxed text-[#374151]'}>
+        {data.professionalSummary}
+      </p>
+    </ResumeSection>
+  );
+};
+
+const ExperienceBlock: React.FC<{ data: ResumePreviewData; variant: ResumeOutputLayout }> = ({ data, variant }) => {
   if (!data.experience?.length) return null;
   const dense = variant === 'compact-ats' || variant === 'corporate-compact';
 
@@ -207,8 +173,8 @@ const ExperienceBlock: React.FC<{ data: OptimizedResume; variant: ResumeOutputLa
               <p className={dense ? 'text-xs font-bold text-[#111827]' : 'text-sm font-bold text-[#111827]'}>
                 {exp.title}{exp.company ? `, ${exp.company}` : ''}
               </p>
-              {exp.duration && (
-                <p className="text-[11px] font-medium text-[#4b5563]">{exp.duration}</p>
+              {exp.dateRange && (
+                <p className="text-[11px] font-medium text-[#4b5563]">{exp.dateRange}</p>
               )}
             </div>
             {exp.location && <p className="text-[11px] text-[#4b5563]">{exp.location}</p>}
@@ -220,7 +186,7 @@ const ExperienceBlock: React.FC<{ data: OptimizedResume; variant: ResumeOutputLa
   );
 };
 
-const ProjectsBlock: React.FC<{ data: OptimizedResume; variant: ResumeOutputLayout }> = ({ data, variant }) => {
+const ProjectsBlock: React.FC<{ data: ResumePreviewData; variant: ResumeOutputLayout }> = ({ data, variant }) => {
   if (!data.projects?.length) return null;
   return (
     <ResumeSection title="Projects" variant={variant}>
@@ -231,8 +197,8 @@ const ProjectsBlock: React.FC<{ data: OptimizedResume; variant: ResumeOutputLayo
             className={variant === 'project-led' ? 'rounded-md bg-[#dbeafe] p-4' : ''}
           >
             <p className="text-sm font-bold text-[#111827]">{project.name}</p>
-            {project.technologies && (
-              <p className="mt-0.5 text-[11px] italic text-[#4b5563]">Technologies: {project.technologies}</p>
+            {project.technologies?.length > 0 && (
+              <p className="mt-0.5 text-[11px] italic text-[#4b5563]">Technologies: {project.technologies.join(', ')}</p>
             )}
             <BulletList items={project.bullets} dense={variant === 'compact-ats'} />
           </article>
@@ -242,7 +208,7 @@ const ProjectsBlock: React.FC<{ data: OptimizedResume; variant: ResumeOutputLayo
   );
 };
 
-const EducationBlock: React.FC<{ data: OptimizedResume; variant: ResumeOutputLayout }> = ({ data, variant }) => {
+const EducationBlock: React.FC<{ data: ResumePreviewData; variant: ResumeOutputLayout }> = ({ data, variant }) => {
   if (!data.education?.length) return null;
   return (
     <ResumeSection title="Education" variant={variant}>
@@ -261,7 +227,7 @@ const EducationBlock: React.FC<{ data: OptimizedResume; variant: ResumeOutputLay
   );
 };
 
-const CertificationsBlock: React.FC<{ data: OptimizedResume; variant: ResumeOutputLayout; sidebar?: boolean }> = ({
+const CertificationsBlock: React.FC<{ data: ResumePreviewData; variant: ResumeOutputLayout; sidebar?: boolean }> = ({
   data,
   variant,
   sidebar = false,
@@ -284,14 +250,14 @@ const CertificationsBlock: React.FC<{ data: OptimizedResume; variant: ResumeOutp
   );
 };
 
-const SidebarLayout: React.FC<{ data: OptimizedResume; variant: ResumeOutputLayout }> = ({ data, variant }) => {
+const SidebarLayout: React.FC<{ data: ResumePreviewData; variant: ResumeOutputLayout }> = ({ data, variant }) => {
   const contacts = contactItems(data);
 
   return (
     <div className="overflow-hidden rounded-2xl bg-white text-[#111827] shadow-2xl">
       <div className="grid min-h-[880px] grid-cols-[210px_minmax(0,1fr)]">
         <aside className="bg-[#dbeafe] p-7">
-          <h1 className="text-2xl font-extrabold leading-tight text-[#111827]">{data.full_name}</h1>
+          <h1 className="text-2xl font-extrabold leading-tight text-[#111827]">{data.personalInfo.fullName}</h1>
           <div className="mt-6 space-y-6">
             {contacts.length > 0 && (
               <div className="text-xs">
@@ -316,6 +282,42 @@ const SidebarLayout: React.FC<{ data: OptimizedResume; variant: ResumeOutputLayo
   );
 };
 
+const SkillsFirstLayout: React.FC<{ data: ResumePreviewData; variant: ResumeOutputLayout }> = ({ data, variant }) => (
+  <div className="overflow-hidden rounded-2xl bg-white text-[#111827] shadow-2xl">
+    <div className="border-b-4 border-[#1d4ed8] px-10 py-8">
+      <Header data={data} variant={variant} />
+    </div>
+    <div className="grid grid-cols-[260px_minmax(0,1fr)] gap-0">
+      <aside className="border-r border-[#dbeafe] bg-[#f8fbff] p-6">
+        <SkillsBlock data={data} variant={variant} sidebar />
+        <div className="mt-6">
+          <CertificationsBlock data={data} variant={variant} sidebar />
+        </div>
+      </aside>
+      <main className="p-8">
+        <SummaryBlock data={data} variant={variant} />
+        <ExperienceBlock data={data} variant={variant} />
+        <ProjectsBlock data={data} variant={variant} />
+        <EducationBlock data={data} variant={variant} />
+      </main>
+    </div>
+  </div>
+);
+
+const ProjectLedLayout: React.FC<{ data: ResumePreviewData; variant: ResumeOutputLayout }> = ({ data, variant }) => (
+  <div className="rounded-2xl bg-white p-10 font-sans text-sm leading-relaxed text-[#111827] shadow-2xl">
+    <Header data={data} variant={variant} />
+    <SummaryBlock data={data} variant={variant} />
+    <section className="mb-6 rounded-xl border border-[#dbeafe] bg-[#f8fbff] p-5">
+      <ProjectsBlock data={data} variant={variant} />
+    </section>
+    <ExperienceBlock data={data} variant={variant} />
+    <SkillsBlock data={data} variant={variant} />
+    <EducationBlock data={data} variant={variant} />
+    <CertificationsBlock data={data} variant={variant} />
+  </div>
+);
+
 const OptimizedResumeRenderer: React.FC<OptimizedResumeRendererProps> = ({ data, templateId }) => {
   const template = getResumeTemplate(templateId);
   const variant = template.outputLayout;
@@ -324,6 +326,12 @@ const OptimizedResumeRenderer: React.FC<OptimizedResumeRendererProps> = ({ data,
 
   if (variant === 'sidebar-professional') {
     return <SidebarLayout data={data} variant={variant} />;
+  }
+  if (variant === 'skills-first') {
+    return <SkillsFirstLayout data={data} variant={variant} />;
+  }
+  if (variant === 'project-led') {
+    return <ProjectLedLayout data={data} variant={variant} />;
   }
 
   const blocks = {

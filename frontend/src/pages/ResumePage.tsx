@@ -10,8 +10,9 @@ import apiClient from '@/lib/api';
 import { authStore } from '@/store/authStore';
 import { trackEvent } from '@/lib/analytics';
 import ResumeTemplateGallery from '@/components/resume/ResumeTemplateGallery';
-import OptimizedResumeRenderer from '@/components/resume/OptimizedResumeRenderer';
+import OptimizedResumePreview from '@/components/resume/OptimizedResumePreview';
 import { getResumeTemplate } from '@/data/resumeTemplateRegistry';
+import type { ResumePreviewData } from '@/types/resumePreview';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -50,78 +51,196 @@ interface OptimizationAnalysis {
   reorder_strategy: string;
 }
 
-interface OptimizedResume {
-  full_name: string;
-  contact: { email: string; phone: string; location: string; linkedin: string; portfolio: string };
-  professional_summary: string;
-  technical_skills: string[];
-  professional_skills: string[];
-  experience: Array<{ title: string; company: string; location: string; duration: string; bullets: string[] }>;
-  education: Array<{ degree: string; institution: string; year: string; details: string }>;
-  certifications: string[];
-  projects: Array<{ name: string; technologies: string; bullets: string[] }>;
-  ats_score_after: number;
-  keywords_added: string[];
-  key_improvements: string[];
-}
-
 interface OptimizationResult {
   analysis: OptimizationAnalysis;
-  optimized: OptimizedResume;
+  previewData: ResumePreviewData;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function tryParseOptimizationResult(content?: string | null): OptimizationResult | null {
-  if (!content) return null;
-  try {
-    const parsed = JSON.parse(content);
-    if (parsed?.analysis && parsed?.optimized) return parsed as OptimizationResult;
-    if (parsed && (parsed.summary || parsed.professional_summary || parsed.full_name)) {
-      return {
-        analysis: {
-          candidate_name: parsed.full_name || '',
-          candidate_email: '', candidate_phone: '', candidate_location: '',
-          linkedin_url: '', portfolio_url: '',
-          matched_hard_skills: [], matched_soft_skills: [],
-          missing_critical_skills: [], missing_nice_to_have_skills: [],
-          transferable_skills: [], experience_entries: [], education_entries: [],
-          certifications: parsed.certifications || [],
-          projects: parsed.projects || [],
-          ats_score_before: parsed.ats_score_before || 0,
-          gap_analysis: '', reorder_strategy: '',
-        },
-        optimized: {
-          full_name: parsed.full_name || '',
-          contact: typeof parsed.contact === 'string'
-            ? { email: parsed.contact, phone: '', location: '', linkedin: '', portfolio: '' }
-            : (parsed.contact || { email: '', phone: '', location: '', linkedin: '', portfolio: '' }),
-          professional_summary: parsed.summary || parsed.professional_summary || '',
-          technical_skills: parsed.skills || parsed.technical_skills || [],
-          professional_skills: parsed.professional_skills || [],
-          experience: (parsed.experience || []).map((e: any) => ({
-            title: e.title || '', company: e.company || '',
-            location: '', duration: e.duration || '',
-            bullets: e.achievements || e.bullets || [],
-          })),
-          education: (parsed.education || []).map((e: any) => ({
-            degree: e.degree || '', institution: e.institution || '',
-            year: e.year || '', details: e.details || '',
-          })),
-          certifications: parsed.certifications || [],
-          projects: (parsed.projects || []).map((p: any) => ({
-            name: p.name || '',
-            technologies: Array.isArray(p.technologies) ? p.technologies.join(', ') : (p.technologies || ''),
-            bullets: p.bullets || [p.description || ''],
-          })),
-          ats_score_after: parsed.ats_score_after || 0,
-          keywords_added: parsed.keywords_added || [],
-          key_improvements: [],
-        },
-      };
+function toText(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function toStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((item) => toText(item)).filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    return value
+      .split(/\r?\n|,/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function splitDescriptionToBullets(value: unknown): string[] {
+  const text = toText(value);
+  if (!text) return [];
+  const byLines = text
+    .split(/\r?\n|•|●|▪|◦/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (byLines.length > 1) return byLines;
+  const bySentences = text
+    .split(/(?<=[.!?])\s+(?=[A-Z0-9])/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (bySentences.length > 1) return bySentences;
+  return [text];
+}
+
+function extractBullets(source: any): string[] {
+  const direct = [
+    ...toStringArray(source?.bullets),
+    ...toStringArray(source?.responsibilities),
+    ...toStringArray(source?.achievements),
+  ].filter(Boolean);
+  return direct.length > 0 ? direct : splitDescriptionToBullets(source?.description);
+}
+
+function normalizePreviewData(input: any, fallbackTemplateId = 'classic-professional'): ResumePreviewData {
+  const top = (input && typeof input === 'object' && input.data && typeof input.data === 'object')
+    ? input.data
+    : input;
+  const payload = (top && typeof top === 'object' && top.optimized && typeof top.optimized === 'object')
+    ? { ...top.optimized, __root: top }
+    : { ...(top || {}), __root: top || {} };
+  const personalInfo = payload.personalInfo || payload.personal_info || {};
+  const contact = payload.contact || {};
+  const rawSkills = Array.isArray(payload.skills)
+    ? toStringArray(payload.skills)
+    : (payload.skills && typeof payload.skills === 'object')
+      ? [
+          ...toStringArray(payload.skills.technical),
+          ...toStringArray(payload.skills.professional),
+          ...toStringArray(payload.skills.core),
+          ...toStringArray(payload.skills.all),
+        ]
+      : toStringArray(payload.skills);
+  const mergedSkills = [
+    ...rawSkills,
+    ...toStringArray(payload.technicalSkills),
+    ...toStringArray(payload.professional_skills),
+    ...toStringArray(payload.professionalSkills),
+    ...toStringArray(payload.technical_skills),
+  ]
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const uniqueSkills = Array.from(new Set(mergedSkills));
+
+  const experience = Array.isArray(payload.experience)
+    ? payload.experience.map((exp: any) => ({
+        title: toText(exp?.title || exp?.role || exp?.position),
+        company: toText(exp?.company || exp?.organization),
+        location: toText(exp?.location),
+        dateRange: toText(exp?.dateRange || exp?.duration || exp?.date || exp?.timeline),
+        bullets: extractBullets(exp),
+      }))
+      .filter((entry) => entry.title || entry.company || entry.dateRange || entry.bullets.length > 0)
+    : [];
+
+  const projects = Array.isArray(payload.projects)
+    ? payload.projects.map((project: any) => ({
+        name: toText(project?.name || project?.title),
+        technologies: toStringArray(project?.technologies),
+        bullets: extractBullets(project),
+      }))
+      .filter((entry) => entry.name || entry.bullets.length > 0)
+    : [];
+
+  const education = Array.isArray(payload.education)
+    ? payload.education.map((edu: any) => ({
+        degree: toText(edu?.degree),
+        institution: toText(edu?.institution || edu?.school),
+        year: toText(edu?.year || edu?.date || edu?.graduationYear),
+        details: toText(edu?.details || edu?.description),
+      }))
+      .filter((entry) => entry.degree || entry.institution || entry.year || entry.details)
+    : [];
+
+  const root = payload.__root || {};
+  return {
+    personalInfo: {
+      fullName: toText(personalInfo.fullName || personalInfo.full_name || payload.full_name || payload.fullName || payload.name),
+      email: toText(personalInfo.email || contact.email || payload.email),
+      phone: toText(personalInfo.phone || contact.phone || payload.phone),
+      location: toText(personalInfo.location || contact.location || payload.location),
+      linkedin: toText(personalInfo.linkedin || contact.linkedin || payload.linkedin || payload.linkedin_url),
+      portfolio: toText(personalInfo.portfolio || contact.portfolio || payload.portfolio || payload.portfolio_url),
+    },
+    professionalSummary: toText(payload.professionalSummary || payload.professional_summary || payload.summary),
+    skills: uniqueSkills,
+    experience,
+    projects,
+    education,
+    certifications: toStringArray(payload.certifications),
+    templateId: toText(root.templateId || root.template_id || payload.templateId || payload.template_id) || fallbackTemplateId,
+    atsScore: Number(payload.atsScore || payload.ats_score_after || root.atsScore || root.ats_score_after || 0) || undefined,
+    matchScore: Number(payload.matchScore || payload.match_score || root.matchScore || root.match_score || 0) || undefined,
+    keywordsAdded: toStringArray(payload.keywords_added || payload.keywordsAdded),
+  };
+}
+
+function normalizeAnalysis(input: any): OptimizationAnalysis {
+  const top = (input && typeof input === 'object' && input.data && typeof input.data === 'object')
+    ? input.data
+    : input;
+  const analysis = (top && typeof top === 'object' && top.analysis && typeof top.analysis === 'object')
+    ? top.analysis
+    : {};
+  return {
+    candidate_name: toText(analysis.candidate_name),
+    candidate_email: toText(analysis.candidate_email),
+    candidate_phone: toText(analysis.candidate_phone),
+    candidate_location: toText(analysis.candidate_location),
+    linkedin_url: toText(analysis.linkedin_url),
+    portfolio_url: toText(analysis.portfolio_url),
+    matched_hard_skills: toStringArray(analysis.matched_hard_skills),
+    matched_soft_skills: toStringArray(analysis.matched_soft_skills),
+    missing_critical_skills: toStringArray(analysis.missing_critical_skills),
+    missing_nice_to_have_skills: toStringArray(analysis.missing_nice_to_have_skills),
+    transferable_skills: toStringArray(analysis.transferable_skills),
+    experience_entries: Array.isArray(analysis.experience_entries) ? analysis.experience_entries : [],
+    education_entries: Array.isArray(analysis.education_entries) ? analysis.education_entries : [],
+    certifications: toStringArray(analysis.certifications),
+    projects: Array.isArray(analysis.projects) ? analysis.projects : [],
+    ats_score_before: Number(analysis.ats_score_before || top?.atsScoreBefore || top?.ats_score_before || 0),
+    job_title: toText(analysis.job_title),
+    gap_analysis: toText(analysis.gap_analysis),
+    reorder_strategy: toText(analysis.reorder_strategy),
+  };
+}
+
+function normalizeOptimizationResult(input: unknown, fallbackTemplateId = 'classic-professional'): OptimizationResult | null {
+  if (!input) return null;
+  let parsed: any = input;
+  if (typeof input === 'string') {
+    try {
+      parsed = JSON.parse(input);
+    } catch {
+      return null;
     }
-  } catch {}
-  return null;
+  }
+  if (!parsed || typeof parsed !== 'object') return null;
+  const previewData = normalizePreviewData(parsed, fallbackTemplateId);
+  const hasRenderableData =
+    !!previewData.personalInfo.fullName ||
+    !!previewData.professionalSummary ||
+    previewData.skills.length > 0 ||
+    previewData.experience.length > 0 ||
+    previewData.projects.length > 0 ||
+    previewData.education.length > 0;
+  if (!hasRenderableData) return null;
+  try {
+    return {
+      analysis: normalizeAnalysis(parsed),
+      previewData,
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function downloadBlob(url: string, filename: string) {
@@ -190,123 +309,9 @@ const SkillPill: React.FC<{ label: string; variant: 'matched' | 'missing' | 'nic
   );
 };
 
-// Look up accent colour from the new template data file
-function getTemplateAccent(templateId: string): string {
-  return getResumeTemplate(templateId).colors.accent;
-}
-
-const ResumePreview: React.FC<{ data: OptimizedResume; accentColor?: string }> = ({
-  data,
-  accentColor = '#1a56db',
-}) => {
-  const contactLine = [data.contact?.email, data.contact?.phone, data.contact?.location].filter(Boolean).join(' | ');
-  const linkLine = [data.contact?.linkedin, data.contact?.portfolio].filter(Boolean).join(' · ');
-  return (
-    <div className="rounded-2xl bg-white text-slate-900 p-10 shadow-2xl font-sans text-sm leading-relaxed">
-      {/* Header */}
-      <div className="text-center mb-6 pb-4" style={{ borderBottom: `2px solid ${accentColor}` }}>
-        <h1 className="text-2xl font-bold text-slate-900 mb-1">{data.full_name}</h1>
-        {contactLine && <p className="text-slate-500 text-xs mt-1">{contactLine}</p>}
-        {linkLine && <p className="text-slate-400 text-xs mt-0.5">{linkLine}</p>}
-      </div>
-
-      {data.professional_summary && (
-        <section className="mb-5">
-          <h2 className="text-[10px] font-bold uppercase tracking-[0.2em] mb-2" style={{ color: accentColor }}>Professional Summary</h2>
-          <div className="w-full h-px mb-3" style={{ background: '#e2e8f0' }} />
-          <p className="text-slate-700 leading-relaxed">{data.professional_summary}</p>
-        </section>
-      )}
-      {data.technical_skills?.length > 0 && (
-        <section className="mb-4">
-          <h2 className="text-[10px] font-bold uppercase tracking-[0.2em] mb-2" style={{ color: accentColor }}>Technical Skills</h2>
-          <div className="w-full h-px mb-3" style={{ background: '#e2e8f0' }} />
-          <p className="text-slate-700 text-xs leading-relaxed">{data.technical_skills.join(' • ')}</p>
-        </section>
-      )}
-      {data.professional_skills?.length > 0 && (
-        <section className="mb-5">
-          <h2 className="text-[10px] font-bold uppercase tracking-[0.2em] mb-2" style={{ color: accentColor }}>Professional Skills</h2>
-          <div className="w-full h-px mb-3" style={{ background: '#e2e8f0' }} />
-          <p className="text-slate-700 text-xs leading-relaxed">{data.professional_skills.join(' • ')}</p>
-        </section>
-      )}
-      {data.experience?.length > 0 && (
-        <section className="mb-5">
-          <h2 className="text-[10px] font-bold uppercase tracking-[0.2em] mb-2" style={{ color: accentColor }}>Professional Experience</h2>
-          <div className="w-full h-px mb-3" style={{ background: '#e2e8f0' }} />
-          {data.experience.map((exp, i) => (
-            <div key={i} className="mb-4 pl-4" style={{ borderLeft: `2px solid ${accentColor}33` }}>
-              <div className="flex items-baseline justify-between mb-0.5">
-                <p className="font-bold text-slate-900">{exp.title} · {exp.company}</p>
-                <p className="text-xs text-slate-400 font-mono ml-4 flex-shrink-0">{exp.duration}</p>
-              </div>
-              {exp.location && <p className="text-xs text-slate-400 mb-1">{exp.location}</p>}
-              <ul className="mt-1 space-y-0.5">
-                {exp.bullets?.map((bullet, j) => (
-                  <li key={j} className="text-slate-600 text-xs flex gap-2">
-                    <span className="flex-shrink-0" style={{ color: accentColor }}>•</span>{bullet}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </section>
-      )}
-      {data.education?.length > 0 && (
-        <section className="mb-5">
-          <h2 className="text-[10px] font-bold uppercase tracking-[0.2em] mb-2" style={{ color: accentColor }}>Education</h2>
-          <div className="w-full h-px mb-3" style={{ background: '#e2e8f0' }} />
-          {data.education.map((edu, i) => (
-            <div key={i} className="mb-2">
-              <div className="flex items-baseline justify-between">
-                <p className="font-semibold text-slate-900 text-sm">{edu.degree}</p>
-                <p className="text-xs text-slate-400 ml-4">{edu.institution} | {edu.year}</p>
-              </div>
-              {edu.details && <p className="text-xs text-slate-500 mt-0.5 italic">{edu.details}</p>}
-            </div>
-          ))}
-        </section>
-      )}
-      {data.projects?.length > 0 && (
-        <section className="mb-5">
-          <h2 className="text-[10px] font-bold uppercase tracking-[0.2em] mb-2" style={{ color: accentColor }}>Projects</h2>
-          <div className="w-full h-px mb-3" style={{ background: '#e2e8f0' }} />
-          {data.projects.map((proj, i) => (
-            <div key={i} className="mb-3">
-              <p className="font-semibold text-slate-900 text-sm">{proj.name}</p>
-              {proj.technologies && <p className="text-xs text-slate-400 mt-0.5 italic">Technologies: {proj.technologies}</p>}
-              <ul className="mt-1 space-y-0.5">
-                {proj.bullets?.map((bullet, j) => (
-                  <li key={j} className="text-slate-600 text-xs flex gap-2">
-                    <span className="flex-shrink-0" style={{ color: accentColor }}>•</span>{bullet}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </section>
-      )}
-      {data.certifications?.length > 0 && (
-        <section>
-          <h2 className="text-[10px] font-bold uppercase tracking-[0.2em] mb-2" style={{ color: accentColor }}>Certifications</h2>
-          <div className="w-full h-px mb-3" style={{ background: '#e2e8f0' }} />
-          <ul className="space-y-0.5">
-            {data.certifications.map((cert, i) => (
-              <li key={i} className="text-slate-600 text-xs flex gap-2">
-                <span className="flex-shrink-0" style={{ color: accentColor }}>•</span>{cert}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-    </div>
-  );
-};
-
 const SuggestionsPanel: React.FC<{
   analysis: OptimizationAnalysis;
-  optimized: OptimizedResume;
+  optimized: ResumePreviewData;
   jobDescription: string;
   onImproveSection: (section: string, currentText: string) => void;
   improvingSection: string | null;
@@ -330,13 +335,13 @@ const SuggestionsPanel: React.FC<{
         </div>
       </div>
     )}
-    {optimized.keywords_added?.length > 0 && (
+    {optimized.keywordsAdded?.length > 0 && (
       <div>
         <p className="mono-label text-xs text-[#4edea3] uppercase tracking-widest mb-3 flex items-center gap-2">
           <Tag className="w-3.5 h-3.5" /> Keywords Added
         </p>
         <div className="flex flex-wrap gap-2">
-          {optimized.keywords_added.map((k, i) => <SkillPill key={i} label={k} variant="keyword" />)}
+          {optimized.keywordsAdded.map((k, i) => <SkillPill key={i} label={k} variant="keyword" />)}
         </div>
       </div>
     )}
@@ -345,14 +350,14 @@ const SuggestionsPanel: React.FC<{
     <div>
       <p className="mono-label text-xs text-[#d0bcff] uppercase tracking-widest mb-3">Weak Sections</p>
       <div className="space-y-3">
-        {optimized.professional_summary && (
+        {optimized.professionalSummary && (
           <div className="flex items-start justify-between gap-3 p-4 rounded-xl" style={{ background: 'var(--app-panel-soft)', border: '1px solid var(--app-border)' }}>
             <div>
               <p className="theme-text text-sm font-semibold mb-0.5">Professional Summary</p>
-              <p className="theme-text-muted text-xs line-clamp-2">{optimized.professional_summary}</p>
+              <p className="theme-text-muted text-xs line-clamp-2">{optimized.professionalSummary}</p>
             </div>
             <button
-              onClick={() => onImproveSection('professional_summary', optimized.professional_summary)}
+              onClick={() => onImproveSection('professional_summary', optimized.professionalSummary)}
               disabled={improvingSection === 'professional_summary'}
               className="flex-shrink-0 text-xs font-bold px-3 py-1.5 rounded-lg text-[#4edea3] border border-[#4edea3]/30 hover:bg-[#4edea3]/10 transition-colors disabled:opacity-50"
             >
@@ -387,11 +392,11 @@ const SuggestionsPanel: React.FC<{
   </div>
 );
 
-const ComparisonPanel: React.FC<{ original: string; optimized: OptimizedResume }> = ({ original, optimized }) => {
+const ComparisonPanel: React.FC<{ original: string; optimized: ResumePreviewData }> = ({ original, optimized }) => {
   const optimizedText = [
-    optimized.full_name,
-    optimized.professional_summary,
-    ...(optimized.technical_skills || []),
+    optimized.personalInfo.fullName,
+    optimized.professionalSummary,
+    ...(optimized.skills || []),
     ...(optimized.experience || []).flatMap((e) => e.bullets || []),
   ].filter(Boolean).join('\n\n');
 
@@ -457,9 +462,12 @@ const ResumePage: React.FC = () => {
   useEffect(() => {
     if (!selectedResumeId) { setOptimizationResult(null); return; }
     const resume = resumes.find((r) => r.id === selectedResumeId);
-    const parsed = tryParseOptimizationResult(resume?.optimized_content);
+    const parsed = normalizeOptimizationResult(resume?.optimized_content, selectedTemplateId);
     setOptimizationResult(parsed);
-    if (parsed) setActiveTab('preview');
+    if (parsed) {
+      setSelectedTemplateId(parsed.previewData.templateId);
+      setActiveTab('preview');
+    }
   }, [selectedResumeId, resumes]);
 
   // ── Mutations ──────────────────────────────────────────────────────────────
@@ -499,12 +507,24 @@ const ResumePage: React.FC = () => {
           timeout: 120_000,
         })
         .then((r) => r.data),
-    onSuccess: (response: { status: string; data: OptimizationResult }, variables) => {
+    onSuccess: (response: any, variables) => {
+      if (import.meta.env.DEV) {
+        const raw = response?.data ?? response;
+        console.debug('[resume-optimize] response shape', {
+          rootKeys: raw && typeof raw === 'object' ? Object.keys(raw) : [],
+          optimizedKeys: raw?.optimized && typeof raw.optimized === 'object' ? Object.keys(raw.optimized) : [],
+          hasPersonalInfo: !!(raw?.personalInfo || raw?.optimized?.personalInfo),
+          hasExperience: Array.isArray(raw?.experience) || Array.isArray(raw?.optimized?.experience),
+        });
+      }
       const result = response.data ?? response;
-      const parsed = tryParseOptimizationResult(
-        typeof result === 'string' ? result : JSON.stringify(result)
-      ) ?? (result as OptimizationResult);
+      const parsed = normalizeOptimizationResult(result, variables.templateId);
+      if (!parsed) {
+        showToast('Optimization succeeded but preview data was invalid.', 'error');
+        return;
+      }
       setOptimizationResult(parsed);
+      setSelectedTemplateId(parsed.previewData.templateId);
       queryClient.invalidateQueries({ queryKey: ['resumes'] });
       setActiveTab('preview');
       trackEvent('preview_opened', {
@@ -539,12 +559,12 @@ const ResumePage: React.FC = () => {
       const improved = data.improved_text || data;
       const updated = { ...optimizationResult };
       if (variables.section === 'professional_summary') {
-        updated.optimized = { ...updated.optimized, professional_summary: improved };
+        updated.previewData = { ...updated.previewData, professionalSummary: improved };
       } else if (variables.section.startsWith('experience_')) {
         const idx = parseInt(variables.section.split('_')[1]);
-        const newExp = [...updated.optimized.experience];
+        const newExp = [...updated.previewData.experience];
         newExp[idx] = { ...newExp[idx], bullets: improved.split('\n').filter(Boolean) };
-        updated.optimized = { ...updated.optimized, experience: newExp };
+        updated.previewData = { ...updated.previewData, experience: newExp };
       }
       setOptimizationResult(updated);
       setImprovingSection(null);
@@ -596,13 +616,14 @@ const ResumePage: React.FC = () => {
 
   const handleDownload = async (type: 'pdf' | 'docx') => {
     if (!selectedResumeId) return;
-    const name = optimizationResult?.optimized?.full_name?.trim().replace(/\s+/g, '_') || 'resume';
+    const activeTemplateId = optimizationResult?.previewData.templateId || selectedTemplateId;
+    const name = optimizationResult?.previewData?.personalInfo.fullName?.trim().replace(/\s+/g, '_') || 'resume';
     const jt = jobTitleOverride.trim() || '';
     const suggestedFilename = jt
       ? `${name}_${jt.replace(/\s+/g, '_')}.${type}`
       : `${name}_Tailored_Resume.${type}`;
     try {
-      const params: Record<string, string> = { template_id: selectedTemplateId };
+      const params: Record<string, string> = { template_id: activeTemplateId };
       if (jt) params.job_title = jt;
       await downloadBlob(
         `/resumes/${selectedResumeId}/download/${type}?` + new URLSearchParams(params).toString(),
@@ -621,10 +642,10 @@ const ResumePage: React.FC = () => {
   const handleCopyText = () => {
     if (!optimizationResult) return;
     const text = [
-      optimizationResult.optimized.full_name,
-      optimizationResult.optimized.professional_summary,
-      'Skills: ' + optimizationResult.optimized.technical_skills?.join(', '),
-      ...optimizationResult.optimized.experience.map((e) =>
+      optimizationResult.previewData.personalInfo.fullName,
+      optimizationResult.previewData.professionalSummary,
+      'Skills: ' + optimizationResult.previewData.skills?.join(', '),
+      ...optimizationResult.previewData.experience.map((e) =>
         `${e.title} · ${e.company}\n${e.bullets.map((b) => `• ${b}`).join('\n')}`
       ),
     ].join('\n\n');
@@ -723,7 +744,7 @@ const ResumePage: React.FC = () => {
               ) : (
                 resumes.map((resume) => {
                   const isSelected = resume.id === selectedResumeId;
-                  const isOpt = !!tryParseOptimizationResult(resume.optimized_content);
+                  const isOpt = !!normalizeOptimizationResult(resume.optimized_content, selectedTemplateId);
                   return (
                     <div
                       key={resume.id}
@@ -825,7 +846,7 @@ const ResumePage: React.FC = () => {
               </div>
             </div>
             <p className="theme-text-subtle text-[10px] -mt-3 mono-label">
-              Export file: {optimizationResult?.optimized?.full_name?.replace(/\s+/g, '_') || 'Name'}_{jobTitleOverride.trim().replace(/\s+/g, '_') || 'Tailored_Resume'}.pdf/docx
+              Export file: {optimizationResult?.previewData?.personalInfo.fullName?.replace(/\s+/g, '_') || 'Name'}_{jobTitleOverride.trim().replace(/\s+/g, '_') || 'Tailored_Resume'}.pdf/docx
             </p>
 
             <div>
@@ -958,12 +979,12 @@ const ResumePage: React.FC = () => {
                 <div className="flex flex-col items-center">
                   <TrendingUp className="h-4 w-4 text-[#4edea3]" />
                   <span className="mono-label text-xs font-bold text-[#4edea3]">
-                    +{optimizationResult.optimized.ats_score_after - optimizationResult.analysis.ats_score_before}
+                    +{(optimizationResult.previewData.atsScore ?? 0) - optimizationResult.analysis.ats_score_before}
                   </span>
                 </div>
                 <div className="text-center">
                   <p className="theme-text-subtle mono-label text-[10px] uppercase tracking-widest mb-0.5">After</p>
-                  <p className="text-3xl font-extrabold text-[#4edea3]">{optimizationResult.optimized.ats_score_after}</p>
+                  <p className="text-3xl font-extrabold text-[#4edea3]">{optimizationResult.previewData.atsScore ?? 0}</p>
                 </div>
               </div>
 
@@ -971,18 +992,18 @@ const ResumePage: React.FC = () => {
               <div className="flex-1 w-full">
                 <div className="flex justify-between mb-1">
                   <p className="theme-text-subtle mono-label text-[10px] uppercase tracking-widest">ATS Score</p>
-                  <p className="mono-label text-[10px] text-[#4edea3]">{optimizationResult.optimized.ats_score_after}/100</p>
+                  <p className="mono-label text-[10px] text-[#4edea3]">{optimizationResult.previewData.atsScore ?? 0}/100</p>
                 </div>
                 <div className="h-2 w-full rounded-full" style={{ background: 'var(--app-panel-soft)' }}>
                   <div className="h-2 rounded-full transition-all duration-700"
-                    style={{ width: `${optimizationResult.optimized.ats_score_after}%`, background: 'linear-gradient(135deg, #d0bcff 0%, #4edea3 100%)' }} />
+                    style={{ width: `${Math.max(0, Math.min(100, optimizationResult.previewData.atsScore ?? 0))}%`, background: 'linear-gradient(135deg, #d0bcff 0%, #4edea3 100%)' }} />
                 </div>
               </div>
 
               {/* Keywords badge */}
               <div className="hidden sm:block text-center flex-shrink-0">
                 <p className="theme-text-subtle mono-label text-[10px] uppercase tracking-widest mb-0.5">Keywords</p>
-                <p className="text-2xl font-extrabold text-[#d0bcff]">+{optimizationResult.optimized.keywords_added?.length ?? 0}</p>
+                <p className="text-2xl font-extrabold text-[#d0bcff]">+{optimizationResult.previewData.keywordsAdded?.length ?? 0}</p>
               </div>
 
               {/* Download / copy */}
@@ -991,7 +1012,7 @@ const ResumePage: React.FC = () => {
                 <div className="flex items-center gap-1.5 mb-1">
                   <LayoutTemplate className="theme-text-subtle w-3 h-3" />
                   <span className="theme-text-subtle text-[10px] mono-label uppercase tracking-wider truncate max-w-[110px]">
-                    {getResumeTemplate(selectedTemplateId).name}
+                    {getResumeTemplate(optimizationResult.previewData.templateId || selectedTemplateId).name}
                   </span>
                 </div>
                 <button onClick={() => handleDownload('pdf')}
@@ -1037,15 +1058,15 @@ const ResumePage: React.FC = () => {
             {/* Tab content */}
             <div className="rounded-2xl p-6" style={{ background: 'var(--app-panel-strong)', border: '1px solid var(--app-border)' }}>
               {activeTab === 'preview' && (
-                <OptimizedResumeRenderer
-                  data={optimizationResult.optimized}
-                  templateId={selectedTemplateId}
+                <OptimizedResumePreview
+                  data={optimizationResult.previewData}
+                  templateId={optimizationResult.previewData.templateId || selectedTemplateId}
                 />
               )}
               {activeTab === 'suggestions' && (
                 <SuggestionsPanel
                   analysis={optimizationResult.analysis}
-                  optimized={optimizationResult.optimized}
+                  optimized={optimizationResult.previewData}
                   jobDescription={jobDescription}
                   onImproveSection={handleImproveSection}
                   improvingSection={improvingSection}
@@ -1054,7 +1075,7 @@ const ResumePage: React.FC = () => {
               {activeTab === 'comparison' && (
                 <ComparisonPanel
                   original={selectedResume?.original_content || ''}
-                  optimized={optimizationResult.optimized}
+                  optimized={optimizationResult.previewData}
                 />
               )}
             </div>
