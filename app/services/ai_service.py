@@ -280,6 +280,29 @@ class AIService:
         """Clear conversation history."""
         self.conversation_history = []
 
+    def _parse_json_response(self, response_text: str, stage: str) -> Dict[str, Any]:
+        """Safely parse JSON from LLM output with fence stripping and structured logging."""
+        cleaned = (response_text or "").strip()
+        if "```json" in cleaned:
+            cleaned = cleaned.split("```json", 1)[1].split("```", 1)[0].strip()
+        elif "```" in cleaned:
+            cleaned = cleaned.split("```", 1)[1].split("```", 1)[0].strip()
+
+        json_start = cleaned.find("{")
+        json_end = cleaned.rfind("}") + 1
+        if json_start == -1 or json_end <= json_start:
+            preview = cleaned[:600].replace("\n", " ")
+            logger.error("%s: no JSON object found in provider response preview=%r", stage, preview)
+            raise ValueError(f"{stage}: no JSON object found in provider response")
+
+        payload = cleaned[json_start:json_end]
+        try:
+            return json.loads(payload)
+        except json.JSONDecodeError as exc:
+            preview = payload[:600].replace("\n", " ")
+            logger.error("%s: malformed JSON (%s) payload preview=%r", stage, exc, preview)
+            raise
+
     def optimize_resume(
         self,
         resume_text: str,
@@ -855,17 +878,7 @@ Analyze and return ONLY a JSON object with these exact keys:
             )
             response_text = response.content[0].text
 
-            if "```json" in response_text:
-                response_text = response_text.split("```json")[1].split("```")[0]
-            elif "```" in response_text:
-                response_text = response_text.split("```")[1].split("```")[0]
-
-            json_start = response_text.find("{")
-            json_end = response_text.rfind("}") + 1
-            if json_start == -1 or json_end <= json_start:
-                raise ValueError("No JSON object found in Stage 1 response")
-
-            return json.loads(response_text[json_start:json_end])
+            return self._parse_json_response(response_text, "stage_1_analyze_resume_job_fit")
 
         except Exception as e:
             logger.error(f"Stage 1 analysis error: {e}")
@@ -985,6 +998,9 @@ Return ONLY a valid JSON object — no markdown, no extra text:
       "company": "Company Name",
       "location": "City or Remote",
       "duration": "Mon YYYY - Mon YYYY",
+      "bullets": [
+        "Strong verb + what + tech/context + outcome"
+      ],
       "projects": [
         {{
           "name": "Sub-project name if original has one, or empty string for general bullets",
@@ -1027,17 +1043,7 @@ Return ONLY a valid JSON object — no markdown, no extra text:
             )
             response_text = response.content[0].text
 
-            if "```json" in response_text:
-                response_text = response_text.split("```json")[1].split("```")[0]
-            elif "```" in response_text:
-                response_text = response_text.split("```")[1].split("```")[0]
-
-            json_start = response_text.find("{")
-            json_end = response_text.rfind("}") + 1
-            if json_start == -1 or json_end <= json_start:
-                raise ValueError("No JSON object found in Stage 2 response")
-
-            return json.loads(response_text[json_start:json_end])
+            return self._parse_json_response(response_text, "stage_2_generate_optimized_resume")
 
         except Exception as e:
             logger.error(f"Stage 2 generation error: {e}")
@@ -1116,15 +1122,7 @@ Analyze and return ONLY a JSON object:
                 messages=[{"role": "user", "content": prompt}],
             )
             response_text = response.content[0].text
-            if "```json" in response_text:
-                response_text = response_text.split("```json")[1].split("```")[0]
-            elif "```" in response_text:
-                response_text = response_text.split("```")[1].split("```")[0]
-            json_start = response_text.find("{")
-            json_end = response_text.rfind("}") + 1
-            if json_start == -1 or json_end <= json_start:
-                raise ValueError("No JSON in v2 Stage 1 response")
-            return json.loads(response_text[json_start:json_end])
+            return self._parse_json_response(response_text, "stage_1_v2_analyze_resume_job_fit")
         except Exception as e:
             logger.error(f"v2 Stage 1 error: {e}")
             raise
@@ -1188,6 +1186,7 @@ You MAY:
 - Professional Summary: 3-4 sentences, 60-80 words. Present tense. No "I". No skill lists.
 - Skills: split into technical_skills and professional_skills arrays, max 20 total.
 - Experience: preserve sub-project structure under each role using "projects" array.
+- Every experience entry MUST include non-empty `bullets` (minimum 2) with concrete responsibilities/outcomes.
 - NEVER add "(in progress)", proficiency qualifiers, or invented metrics.
 
 Return ONLY valid JSON — no markdown, no extra text:
@@ -1209,6 +1208,7 @@ Return ONLY valid JSON — no markdown, no extra text:
       "company": "Company Name",
       "location": "City or Remote",
       "duration": "Mon YYYY - Mon YYYY",
+      "bullets": ["2+ concrete responsibilities/outcomes for the role"],
       "projects": [
         {{
           "name": "Sub-project name or empty string",
@@ -1245,15 +1245,7 @@ Return ONLY valid JSON — no markdown, no extra text:
                 messages=[{"role": "user", "content": prompt}],
             )
             response_text = response.content[0].text
-            if "```json" in response_text:
-                response_text = response_text.split("```json")[1].split("```")[0]
-            elif "```" in response_text:
-                response_text = response_text.split("```")[1].split("```")[0]
-            json_start = response_text.find("{")
-            json_end = response_text.rfind("}") + 1
-            if json_start == -1 or json_end <= json_start:
-                raise ValueError("No JSON in v2 Stage 2 response")
-            return json.loads(response_text[json_start:json_end])
+            return self._parse_json_response(response_text, "stage_2_v2_generate_optimized_resume")
         except Exception as e:
             logger.error(f"v2 Stage 2 error: {e}")
             raise
