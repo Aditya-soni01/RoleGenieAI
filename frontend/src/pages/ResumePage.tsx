@@ -207,7 +207,7 @@ function normalizeAnalysis(input: any): OptimizationAnalysis {
     certifications: toStringArray(analysis.certifications),
     projects: Array.isArray(analysis.projects) ? analysis.projects : [],
     ats_score_before: Number(analysis.ats_score_before || top?.atsScoreBefore || top?.ats_score_before || 0),
-    job_title: toText(analysis.job_title),
+    job_title: toText(analysis.job_title || top?.job_title || top?.optimized?.job_title),
     gap_analysis: toText(analysis.gap_analysis),
     reorder_strategy: toText(analysis.reorder_strategy),
   };
@@ -243,14 +243,56 @@ function normalizeOptimizationResult(input: unknown, fallbackTemplateId = 'class
   }
 }
 
-async function downloadBlob(url: string, filename: string) {
+function sanitizeFilenamePart(value: string, fallback: string): string {
+  const cleaned = value
+    .trim()
+    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, '')
+    .replace(/[\s-]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return cleaned || fallback;
+}
+
+function buildResumeDownloadFallbackFilename(
+  fullName: string | undefined,
+  jobTitle: string | undefined,
+  extension: 'pdf' | 'docx',
+): string {
+  const name = sanitizeFilenamePart(fullName || '', 'Candidate');
+  const title = sanitizeFilenamePart(jobTitle || '', 'Tailored_Resume');
+  return `${name}_${title}.${extension}`;
+}
+
+function getFilenameFromContentDisposition(headerValue: unknown): string | null {
+  if (typeof headerValue !== 'string' || !headerValue.trim()) return null;
+
+  const encodedMatch = headerValue.match(/filename\*\s*=\s*(?:UTF-8'')?([^;]+)/i);
+  if (encodedMatch?.[1]) {
+    try {
+      return decodeURIComponent(encodedMatch[1].trim().replace(/^["']|["']$/g, ''));
+    } catch {
+      return encodedMatch[1].trim().replace(/^["']|["']$/g, '');
+    }
+  }
+
+  const quotedMatch = headerValue.match(/filename\s*=\s*"([^"]+)"/i);
+  if (quotedMatch?.[1]) return quotedMatch[1].trim();
+
+  const plainMatch = headerValue.match(/filename\s*=\s*([^;]+)/i);
+  return plainMatch?.[1]?.trim() || null;
+}
+
+async function downloadBlob(url: string, fallbackFilename: string) {
   const res = await apiClient.get(url, { responseType: 'blob' });
+  const headerFilename = getFilenameFromContentDisposition(res.headers?.['content-disposition']);
+  const filename = headerFilename || fallbackFilename;
   const href = URL.createObjectURL(res.data as Blob);
   const a = document.createElement('a');
   a.href = href; a.download = filename;
   document.body.appendChild(a); a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(href);
+  return filename;
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -616,20 +658,18 @@ const ResumePage: React.FC = () => {
 
   const handleDownload = async (type: 'pdf' | 'docx') => {
     if (!selectedResumeId) return;
-    const activeTemplateId = optimizationResult?.previewData.templateId || selectedTemplateId;
-    const name = optimizationResult?.previewData?.personalInfo.fullName?.trim().replace(/\s+/g, '_') || 'resume';
-    const jt = jobTitleOverride.trim() || '';
-    const suggestedFilename = jt
-      ? `${name}_${jt.replace(/\s+/g, '_')}.${type}`
-      : `${name}_Tailored_Resume.${type}`;
+    const activeTemplateId = selectedTemplateId;
+    const name = optimizationResult?.previewData?.personalInfo.fullName?.trim() || '';
+    const jt = jobTitleOverride.trim() || optimizationResult?.analysis.job_title?.trim() || '';
+    const fallbackFilename = buildResumeDownloadFallbackFilename(name, jt, type);
     try {
       const params: Record<string, string> = { template_id: activeTemplateId };
       if (jt) params.job_title = jt;
-      await downloadBlob(
+      const downloadedFilename = await downloadBlob(
         `/resumes/${selectedResumeId}/download/${type}?` + new URLSearchParams(params).toString(),
-        suggestedFilename,
+        fallbackFilename,
       );
-      showToast(`Downloaded ${suggestedFilename}`);
+      showToast(`Downloaded ${downloadedFilename}`);
     } catch (err: any) {
       let detail = err?.message || 'Unknown error';
       if (err?.response?.data instanceof Blob) {
@@ -846,7 +886,11 @@ const ResumePage: React.FC = () => {
               </div>
             </div>
             <p className="theme-text-subtle text-[10px] -mt-3 mono-label">
-              Export file: {optimizationResult?.previewData?.personalInfo.fullName?.replace(/\s+/g, '_') || 'Name'}_{jobTitleOverride.trim().replace(/\s+/g, '_') || 'Tailored_Resume'}.pdf/docx
+              Export file: {buildResumeDownloadFallbackFilename(
+                optimizationResult?.previewData?.personalInfo.fullName,
+                jobTitleOverride.trim() || optimizationResult?.analysis.job_title,
+                'pdf',
+              ).replace(/\.pdf$/, '.pdf/docx')}
             </p>
 
             <div>
