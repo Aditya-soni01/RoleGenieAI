@@ -1,5 +1,6 @@
 import io
 import json
+import re
 from typing import List, Optional, Dict, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Query, status
@@ -76,13 +77,137 @@ def _extract_text(filename: str, content_bytes: bytes) -> str:
 
 # ─── Data normalizer ──────────────────────────────────────────────────────────
 
+_BULLET_PREFIX_RE = re.compile(r"^(?:[\u2022\u2023\u25e6\u2043\u2219\u25aa\u25cf*]+|-{1,2})\s*")
+
+
+def _split_bullet_text(value: Any) -> List[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        out: List[str] = []
+        for item in value:
+            out.extend(_split_bullet_text(item))
+        return out
+    if isinstance(value, dict):
+        for key in ("text", "description", "summary", "bullet"):
+            if value.get(key):
+                return _split_bullet_text(value.get(key))
+        return []
+
+    text = str(value).replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not text:
+        return []
+
+    parts = [line.strip() for line in text.split("\n") if line.strip()]
+    if len(parts) <= 1:
+        parts = [
+            part.strip()
+            for part in re.split(r"\s*[\u2022\u2023\u25e6\u2043\u2219\u25aa\u25cf]\s+|;\s+", text)
+            if part.strip()
+        ]
+
+    cleaned = []
+    for part in parts:
+        item = _BULLET_PREFIX_RE.sub("", part).strip()
+        if item:
+            cleaned.append(item)
+    return cleaned
+
+
+def _collect_bullet_fields(*values: Any) -> List[str]:
+    bullets: List[str] = []
+    for value in values:
+        bullets.extend(_split_bullet_text(value))
+    return _dedupe_keep_order(bullets)
+
+
+def _bullets_from_mapping(item: Dict[str, Any]) -> List[str]:
+    bullets = _collect_bullet_fields(
+        item.get("bullets"),
+        item.get("achievements"),
+        item.get("responsibilities"),
+    )
+    return bullets or _collect_bullet_fields(item.get("description"))
+
+
+def _experience_key(exp: Dict[str, Any]) -> str:
+    title = (exp.get("title") or exp.get("jobTitle") or exp.get("job_title") or "").strip().lower()
+    company = (exp.get("company") or "").strip().lower()
+    return f"{title}::{company}"
+
+
+def _candidate_original_experiences(raw: Dict[str, Any]) -> List[Dict[str, Any]]:
+    sources: List[Any] = []
+    for key in ("parsed_resume", "parsedResume", "original_resume", "originalResume", "original"):
+        source = raw.get(key)
+        if isinstance(source, dict):
+            sources.append(source.get("experience") or source.get("experiences"))
+
+    analysis = raw.get("analysis")
+    if isinstance(analysis, dict):
+        sources.extend([
+            analysis.get("experience_entries"),
+            analysis.get("experience"),
+            analysis.get("experiences"),
+        ])
+
+    out: List[Dict[str, Any]] = []
+    for source in sources:
+        if not isinstance(source, list):
+            continue
+        for exp in source:
+            if isinstance(exp, dict):
+                out.append(exp)
+    return out
+
+
+def _select_download_resume_payload(raw: Dict[str, Any]) -> Dict[str, Any]:
+    optimized = raw.get("optimized") if isinstance(raw.get("optimized"), dict) else {}
+    preview_keys = {"personalInfo", "professionalSummary", "skills", "experience", "education", "projects"}
+    if preview_keys.intersection(raw.keys()):
+        data = dict(raw)
+        for key in (
+            "full_name",
+            "contact",
+            "professional_summary",
+            "technical_skills",
+            "technicalSkills",
+            "professional_skills",
+            "professionalSkills",
+            "certifications",
+            "job_title",
+            "company_name",
+        ):
+            if not data.get(key) and optimized.get(key):
+                data[key] = optimized[key]
+        if not data.get("experience") and optimized.get("experience"):
+            data["experience"] = optimized["experience"]
+        elif data.get("experience") and optimized.get("experience"):
+            optimized_by_key = {
+                _experience_key(exp): exp
+                for exp in optimized.get("experience") or []
+                if isinstance(exp, dict)
+            }
+            merged_experience = []
+            for exp in data.get("experience") or []:
+                if not isinstance(exp, dict):
+                    continue
+                merged = dict(exp)
+                match = optimized_by_key.get(_experience_key(merged))
+                if match and not merged.get("projects") and match.get("projects"):
+                    merged["projects"] = match.get("projects")
+                merged_experience.append(merged)
+            data["experience"] = merged_experience
+        return data
+
+    if optimized and "analysis" in raw:
+        return optimized
+    return raw
+
+
 def _normalize_data(raw: Dict[str, Any]) -> Dict[str, Any]:
     """Convert either old flat format or new {analysis, optimized} format into canonical dict."""
-    data: Dict[str, Any] = (
-        raw.get("optimized", raw)
-        if ("optimized" in raw and "analysis" in raw)
-        else raw
-    )
+    data: Dict[str, Any] = _select_download_resume_payload(raw)
 
     personal_info = raw.get("personalInfo") if isinstance(raw, dict) else None
     if isinstance(personal_info, dict):
@@ -114,28 +239,43 @@ def _normalize_data(raw: Dict[str, Any]) -> Dict[str, Any]:
     prof_skills = data.get("professional_skills") or data.get("professionalSkills") or []
     skills = tech_skills + prof_skills
 
+    original_experiences = _candidate_original_experiences(raw)
+    original_by_key = {
+        _experience_key(exp): _bullets_from_mapping(exp)
+        for exp in original_experiences
+    }
+
     experience = []
-    for exp in (data.get("experience") or []):
+    for idx, exp in enumerate(data.get("experience") or []):
         if not isinstance(exp, dict):
             continue
-        sub_projects = exp.get("projects") or []
-        if sub_projects:
-            all_bullets = []
-            for proj in sub_projects:
-                if isinstance(proj, dict):
-                    all_bullets.extend(proj.get("bullets") or [])
-            achievements = all_bullets
-        else:
-            achievements = exp.get("bullets") or exp.get("achievements") or []
+        sub_projects = [proj for proj in (exp.get("projects") or []) if isinstance(proj, dict)]
+        normalized_projects = []
+        project_bullets: List[str] = []
+        for proj in sub_projects:
+            bullets = _bullets_from_mapping(proj)
+            project_bullets.extend(bullets)
+            normalized_projects.append({**proj, "bullets": bullets})
+
+        achievements = _dedupe_keep_order([*_bullets_from_mapping(exp), *project_bullets])
+        if not achievements:
+            achievements = original_by_key.get(_experience_key(exp), [])
+        if not achievements and idx < len(original_experiences):
+            original = original_experiences[idx]
+            achievements = _bullets_from_mapping(original)
         start = (exp.get("startDate") or exp.get("start_date") or "").strip()
         end = (exp.get("endDate") or exp.get("end_date") or "").strip()
         duration = exp.get("duration") or (" - ".join([p for p in [start, end] if p]).strip(" -"))
         experience.append({
             "title": exp.get("title") or exp.get("jobTitle") or "",
             "company": exp.get("company", ""),
+            "location": exp.get("location", ""),
+            "startDate": start,
+            "endDate": end,
             "duration": duration or "",
             "achievements": achievements,
-            "projects": sub_projects,
+            "bullets": achievements,
+            "projects": normalized_projects,
         })
 
     education = [
@@ -156,6 +296,12 @@ def _normalize_data(raw: Dict[str, Any]) -> Dict[str, Any]:
 
     return {
         "full_name": data.get("full_name") or (personal_info or {}).get("fullName", ""),
+        "role_title": (
+            data.get("role_title")
+            or data.get("job_title")
+            or raw.get("job_title", "")
+            or (raw.get("optimized", {}) if isinstance(raw.get("optimized"), dict) else {}).get("job_title", "")
+        ),
         "contact": contact_str,
         "summary": (
             data.get("professional_summary")
@@ -279,9 +425,9 @@ def _collect_profile_fallback_bullets(profile_data: dict) -> Dict[str, List[str]
         bullets: List[str] = []
         for proj in exp.get("projects") or []:
             if isinstance(proj, dict):
-                bullets.extend(proj.get("bullets") or [])
-        if not bullets and exp.get("description"):
-            bullets.append(str(exp.get("description")))
+                bullets.extend(_bullets_from_mapping(proj))
+        if not bullets:
+            bullets.extend(_bullets_from_mapping(exp))
         fallback[key] = _dedupe_keep_order(bullets)
     return fallback
 
@@ -324,19 +470,17 @@ def _build_structured_optimized_resume(
         if not duration and (start_date or end_date):
             duration = " - ".join([p for p in [start_date, end_date] if p]).strip()
 
-        bullets: List[str] = []
-        bullets.extend(exp.get("bullets") or [])
-        bullets.extend(exp.get("achievements") or [])
+        bullets: List[str] = _bullets_from_mapping(exp)
         for proj in exp.get("projects") or []:
             if isinstance(proj, dict):
-                bullets.extend(proj.get("bullets") or [])
+                bullets.extend(_bullets_from_mapping(proj))
         bullets = _dedupe_keep_order(bullets)
 
         if not bullets:
             key = f"{title.lower()}::{company.lower()}"
             bullets = fallback_bullets.get(key, [])
         if not bullets and exp.get("description"):
-            bullets = _dedupe_keep_order([str(exp.get("description"))])
+            bullets = _collect_bullet_fields(exp.get("description"))
 
         canonical_experience.append(
             {
@@ -418,7 +562,9 @@ def _build_structured_optimized_resume(
                 "location": e.get("location", ""),
                 "startDate": e.get("startDate", ""),
                 "endDate": e.get("endDate", ""),
+                "duration": e.get("duration", ""),
                 "bullets": e.get("bullets", []),
+                "projects": e.get("projects", []),
             }
             for e in canonical_experience
         ],
@@ -506,6 +652,19 @@ def _hydrate_resume_optimization_metadata(resume, db: Session):
 
     resume.optimized_content = json.dumps(raw, ensure_ascii=False)
     return resume
+
+
+def _resolve_export_job_title(raw: Dict[str, Any], data: Dict[str, Any], explicit_title: Optional[str]) -> str:
+    optimized = raw.get("optimized") if isinstance(raw.get("optimized"), dict) else {}
+    analysis = raw.get("analysis") if isinstance(raw.get("analysis"), dict) else {}
+    return (
+        explicit_title
+        or raw.get("job_title")
+        or optimized.get("job_title")
+        or analysis.get("job_title")
+        or data.get("role_title")
+        or ""
+    )
 
 
 # ─── Plan + template guard ────────────────────────────────────────────────────
@@ -741,7 +900,7 @@ def download_docx(
         raise HTTPException(status_code=500, detail="Failed to generate DOCX file")
 
     # Derive job title from stored data if not provided
-    resolved_title = job_title or raw.get("optimized", {}).get("job_title") or ""
+    resolved_title = _resolve_export_job_title(raw, data, job_title)
     user_name = data.get("full_name") or f"{current_user.first_name or ''} {current_user.last_name or ''}".strip()
     filename = build_resume_filename(user_name or None, resolved_title or None, "docx")
     AnalyticsService.log_event(
@@ -798,7 +957,7 @@ def download_pdf(
         logger.error(f"PDF generation failed: {e}")
         raise HTTPException(status_code=500, detail="Failed to generate PDF file")
 
-    resolved_title = job_title or raw.get("optimized", {}).get("job_title") or ""
+    resolved_title = _resolve_export_job_title(raw, data, job_title)
     user_name = data.get("full_name") or f"{current_user.first_name or ''} {current_user.last_name or ''}".strip()
     filename = build_resume_filename(user_name or None, resolved_title or None, "pdf")
     AnalyticsService.log_event(

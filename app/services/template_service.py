@@ -13,6 +13,8 @@ Dispatcher:
 """
 
 import io
+import html
+import re
 from typing import Any, Callable, Dict, List, Optional
 
 
@@ -23,6 +25,76 @@ NormalizedData = Dict[str, Any]
 Expected keys after _normalize_data():
   full_name, contact, summary, skills, experience, education, projects, certifications
 """
+
+_BULLET_PREFIX_RE = re.compile(r"^(?:[\u2022\u2023\u25e6\u2043\u2219\u25aa\u25cf*]+|-{1,2})\s*")
+
+
+def _split_bullet_text(value: Any) -> List[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        out: List[str] = []
+        for item in value:
+            out.extend(_split_bullet_text(item))
+        return out
+    if isinstance(value, dict):
+        for key in ("text", "description", "summary", "bullet"):
+            if value.get(key):
+                return _split_bullet_text(value.get(key))
+        return []
+
+    text = str(value).replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not text:
+        return []
+
+    parts = [line.strip() for line in text.split("\n") if line.strip()]
+    if len(parts) <= 1:
+        parts = [
+            part.strip()
+            for part in re.split(r"\s*[\u2022\u2023\u25e6\u2043\u2219\u25aa\u25cf]\s+|;\s+", text)
+            if part.strip()
+        ]
+
+    out = []
+    for part in parts:
+        cleaned = _BULLET_PREFIX_RE.sub("", part).strip()
+        if cleaned:
+            out.append(cleaned)
+    return out
+
+
+def _dedupe_keep_order(items: List[str]) -> List[str]:
+    seen = set()
+    out: List[str] = []
+    for item in items:
+        cleaned = str(item).strip()
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        out.append(cleaned)
+    return out
+
+
+def _item_bullets(item: Dict[str, Any]) -> List[str]:
+    bullets = _dedupe_keep_order([
+        *_split_bullet_text(item.get("achievements")),
+        *_split_bullet_text(item.get("bullets")),
+        *_split_bullet_text(item.get("responsibilities")),
+    ])
+    return bullets or _split_bullet_text(item.get("description"))
+
+
+def _remaining_bullets(all_bullets: List[str], rendered: List[str]) -> List[str]:
+    rendered_set = set(rendered)
+    return [bullet for bullet in all_bullets if bullet not in rendered_set]
+
+
+def _line_join(*parts: Any) -> str:
+    return " | ".join(str(part).strip() for part in parts if str(part or "").strip())
+
+
+def _pdf_escape(value: Any) -> str:
+    return html.escape(str(value or ""), quote=False)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -43,6 +115,9 @@ def _docx_base(
     skills_first: bool = False,
     projects_second: bool = False,
     show_skills_grid: bool = False,
+    show_role_title: bool = False,
+    split_experience_header: bool = False,
+    section_titles: Optional[Dict[str, str]] = None,
 ) -> bytes:
     """
     Shared DOCX builder parameterised for all 10 template variants.
@@ -54,6 +129,7 @@ def _docx_base(
     from docx.oxml import OxmlElement
 
     r, g, b = accent_rgb
+    section_titles = section_titles or {}
 
     doc = Document()
     sec = doc.sections[0]
@@ -97,6 +173,16 @@ def _docx_base(
     rn.bold = True
     rn.font.size = Pt(name_size)
 
+    role_title = str(data.get("role_title") or data.get("job_title") or "").strip()
+    if show_role_title and role_title:
+        p_role = doc.add_paragraph()
+        p_role.alignment = WD_ALIGN_PARAGRAPH.CENTER if name_centered else WD_ALIGN_PARAGRAPH.LEFT
+        p_role.paragraph_format.space_after = Pt(2)
+        p_role.paragraph_format.space_before = Pt(0)
+        rr = p_role.add_run(role_title)
+        rr.bold = True
+        rr.font.size = Pt(body_font_size + 1)
+
     # ── Contact ───────────────────────────────────────────────────────────────
     p_contact = doc.add_paragraph()
     p_contact.alignment = WD_ALIGN_PARAGRAPH.CENTER if name_centered else WD_ALIGN_PARAGRAPH.LEFT
@@ -116,7 +202,7 @@ def _docx_base(
         prof = data.get("professional_skills") or []
         all_skills = data.get("skills") or tech + prof
         if all_skills:
-            heading("Skills")
+            heading(section_titles.get("skills", "Skills"))
             if tech and prof:
                 p_tech = doc.add_paragraph()
                 r_label = p_tech.add_run("Technical: ")
@@ -142,20 +228,31 @@ def _docx_base(
 
     def _add_experience():
         if data.get("experience"):
-            heading("Experience")
+            heading(section_titles.get("experience", "Experience"))
             for exp in data["experience"]:
                 p = doc.add_paragraph()
                 p.paragraph_format.space_before = Pt(5 if compact else 6)
-                r_run = p.add_run(f"{exp.get('title', '')}  —  {exp.get('company', '')}")
+                title = exp.get("title", "")
+                header = title if split_experience_header else f"{title}  -  {exp.get('company', '')}"
+                r_run = p.add_run(header)
                 r_run.bold = True
                 r_run.font.size = Pt(body_font_size)
                 p2 = doc.add_paragraph()
-                r2 = p2.add_run(exp.get("duration", ""))
+                company_line = (
+                    _line_join(exp.get("company", ""), exp.get("location", ""), exp.get("duration", ""))
+                    if split_experience_header
+                    else exp.get("duration", "")
+                )
+                r2 = p2.add_run(company_line)
                 r2.italic = True
                 r2.font.size = Pt(body_font_size - 1)
                 sub_projects = exp.get("projects") or []
+                exp_bullets = _item_bullets(exp)
+                rendered_bullets: List[str] = []
                 if sub_projects:
                     for proj in sub_projects:
+                        if not isinstance(proj, dict):
+                            continue
                         proj_name = proj.get("name", "")
                         if proj_name:
                             p_proj = doc.add_paragraph()
@@ -163,13 +260,13 @@ def _docx_base(
                             r_proj.bold = True
                             r_proj.italic = True
                             r_proj.font.size = Pt(body_font_size - 1)
-                        for bullet in proj.get("bullets") or []:
+                        for bullet in _item_bullets(proj):
                             bp = doc.add_paragraph(style="List Bullet")
                             bp.add_run(bullet).font.size = Pt(body_font_size)
-                else:
-                    for ach in exp.get("achievements", []):
-                        bp = doc.add_paragraph(style="List Bullet")
-                        bp.add_run(ach).font.size = Pt(body_font_size)
+                            rendered_bullets.append(bullet)
+                for ach in _remaining_bullets(exp_bullets, rendered_bullets):
+                    bp = doc.add_paragraph(style="List Bullet")
+                    bp.add_run(ach).font.size = Pt(body_font_size)
 
     def _add_education():
         if data.get("education"):
@@ -314,7 +411,7 @@ def _docx_sidebar(data: NormalizedData) -> bytes:
         for exp in data["experience"]:
             para(main, f"{exp.get('title', '')} - {exp.get('company', '')}", size=10, bold=True, after=0)
             para(main, exp.get("duration", ""), size=8, color=(0x4B, 0x55, 0x63), after=2)
-            for bullet in exp.get("achievements", []):
+            for bullet in _item_bullets(exp):
                 p = main.add_paragraph(style="List Bullet")
                 p.paragraph_format.space_after = Pt(1)
                 p.add_run(bullet).font.size = Pt(9)
@@ -339,8 +436,24 @@ def _docx_sidebar(data: NormalizedData) -> bytes:
 
 
 def _docx_t1(data: NormalizedData) -> bytes:
-    """Classic Professional — blue, centered, standard."""
-    return _docx_base(data, name_size=22, name_centered=True, accent_rgb=(0x1D, 0x4E, 0xD8))
+    """Classic Professional - compact black-and-white ATS style."""
+    return _docx_base(
+        data,
+        name_size=18,
+        name_centered=True,
+        accent_rgb=(0x00, 0x00, 0x00),
+        section_uppercase=False,
+        hr_thickness="4",
+        section_font_size=10,
+        body_font_size=9,
+        compact=True,
+        show_role_title=True,
+        split_experience_header=True,
+        section_titles={
+            "skills": "Technical Skills",
+            "experience": "Professional Experience",
+        },
+    )
 
 
 def _docx_t2(data: NormalizedData) -> bytes:
@@ -424,6 +537,9 @@ def _pdf_base(
     bold_divider: bool = False,
     left_margin: float = 1.0,
     right_margin: float = 1.0,
+    show_role_title: bool = False,
+    split_experience_header: bool = False,
+    section_titles: Optional[Dict[str, str]] = None,
 ) -> bytes:
     """
     Shared PDF builder for all 10 template variants.
@@ -438,6 +554,7 @@ def _pdf_base(
     ACCENT = colors.HexColor(accent_hex)
     GRAY = colors.HexColor(secondary_hex)
     LIGHT = colors.HexColor(divider_hex)
+    section_titles = section_titles or {}
 
     top_m = 0.55 * inch if compact else 0.75 * inch
     buf = io.BytesIO()
@@ -473,6 +590,15 @@ def _pdf_base(
         spaceBefore=0,
         spaceAfter=10 if compact else 12,
     )
+    role_style = ParagraphStyle(
+        "RoleTitle",
+        fontSize=body_size + 1,
+        fontName="Helvetica-Bold",
+        leading=int((body_size + 1) * 1.3),
+        alignment=name_align,
+        spaceBefore=0,
+        spaceAfter=3,
+    )
     section_style = ParagraphStyle(
         "Section", fontSize=section_size, fontName="Helvetica-Bold",
         textColor=ACCENT, spaceBefore=space_before_section,
@@ -507,9 +633,12 @@ def _pdf_base(
             thickness = 1.5 if bold_divider else 0.5
             story.append(HRFlowable(width="100%", thickness=thickness, color=LIGHT, spaceAfter=3))
 
-    story.append(Paragraph(data.get("full_name", ""), name_style))
+    story.append(Paragraph(_pdf_escape(data.get("full_name", "")), name_style))
+    role_title = str(data.get("role_title") or data.get("job_title") or "").strip()
+    if show_role_title and role_title:
+        story.append(Paragraph(_pdf_escape(role_title), role_style))
     story.append(Spacer(1, 2))   # belt-and-suspenders: explicit gap between name and contact
-    story.append(Paragraph(data.get("contact", ""), contact_style))
+    story.append(Paragraph(_pdf_escape(data.get("contact", "")), contact_style))
     story.append(HRFlowable(width="100%", thickness=1.5, color=ACCENT, spaceBefore=2, spaceAfter=6))
 
     def _add_summary():
@@ -522,7 +651,7 @@ def _pdf_base(
         prof = data.get("professional_skills") or []
         all_skills = data.get("skills") or tech + prof
         if all_skills:
-            section("Skills")
+            section(section_titles.get("skills", "Skills"))
             if tech and prof:
                 story.append(Paragraph("<b>Technical:</b> " + " &bull; ".join(tech), body_style))
                 story.append(Paragraph("<b>Professional:</b> " + " &bull; ".join(prof), body_style))
@@ -531,24 +660,35 @@ def _pdf_base(
 
     def _add_experience():
         if data.get("experience"):
-            section("Experience")
+            section(section_titles.get("experience", "Experience"))
             for exp in data["experience"]:
-                story.append(Paragraph(
-                    f"<b>{exp.get('title', '')} — {exp.get('company', '')}</b>",
-                    job_title_style,
-                ))
-                story.append(Paragraph(f"<i>{exp.get('duration', '')}</i>", italic_style))
+                title = _pdf_escape(exp.get("title", ""))
+                company_line = _line_join(exp.get("company", ""), exp.get("location", ""), exp.get("duration", ""))
+                if split_experience_header:
+                    story.append(Paragraph(f"<b>{title}</b>", job_title_style))
+                    if company_line:
+                        story.append(Paragraph(f"<i>{_pdf_escape(company_line)}</i>", italic_style))
+                else:
+                    story.append(Paragraph(
+                        f"<b>{title} - {_pdf_escape(exp.get('company', ''))}</b>",
+                        job_title_style,
+                    ))
+                    story.append(Paragraph(f"<i>{_pdf_escape(exp.get('duration', ''))}</i>", italic_style))
                 sub_projects = exp.get("projects") or []
+                exp_bullets = _item_bullets(exp)
+                rendered_bullets: List[str] = []
                 if sub_projects:
                     for proj in sub_projects:
+                        if not isinstance(proj, dict):
+                            continue
                         proj_name = proj.get("name", "")
                         if proj_name:
-                            story.append(Paragraph(proj_name, proj_name_style))
-                        for bullet in proj.get("bullets") or []:
-                            story.append(Paragraph(f"&bull; {bullet}", bullet_style))
-                else:
-                    for ach in exp.get("achievements", []):
-                        story.append(Paragraph(f"&bull; {ach}", bullet_style))
+                            story.append(Paragraph(_pdf_escape(proj_name), proj_name_style))
+                        for bullet in _item_bullets(proj):
+                            story.append(Paragraph(f"&bull; {_pdf_escape(bullet)}", bullet_style))
+                            rendered_bullets.append(bullet)
+                for ach in _remaining_bullets(exp_bullets, rendered_bullets):
+                    story.append(Paragraph(f"&bull; {_pdf_escape(ach)}", bullet_style))
                 story.append(Spacer(1, 3 if compact else 4))
 
     def _add_education():
@@ -667,8 +807,8 @@ def _pdf_sidebar(data: NormalizedData) -> bytes:
         for exp in data["experience"]:
             right.append(Paragraph(f"{exp.get('title', '')} - {exp.get('company', '')}", title_style))
             right.append(Paragraph(exp.get("duration", ""), muted_style))
-            for bullet in exp.get("achievements", []):
-                right.append(Paragraph(f"- {bullet}", bullet_style))
+            for bullet in _item_bullets(exp):
+                right.append(Paragraph(f"- {_pdf_escape(bullet)}", bullet_style))
             right.append(Spacer(1, 3))
 
     if data.get("projects"):
@@ -703,8 +843,27 @@ def _pdf_sidebar(data: NormalizedData) -> bytes:
 
 
 def _pdf_t1(data: NormalizedData) -> bytes:
-    """Classic Professional — blue, centered."""
-    return _pdf_base(data, accent_hex="#1d4ed8", name_align=1)
+    """Classic Professional - compact black-and-white ATS style."""
+    return _pdf_base(
+        data,
+        accent_hex="#000000",
+        secondary_hex="#000000",
+        divider_hex="#000000",
+        name_size=18,
+        name_align=1,
+        section_size=10,
+        body_size=9,
+        compact=True,
+        section_label_transform=str.title,
+        left_margin=0.75,
+        right_margin=0.75,
+        show_role_title=True,
+        split_experience_header=True,
+        section_titles={
+            "skills": "Technical Skills",
+            "experience": "Professional Experience",
+        },
+    )
 
 
 def _pdf_t2(data: NormalizedData) -> bytes:

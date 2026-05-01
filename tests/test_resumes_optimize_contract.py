@@ -1,3 +1,5 @@
+import io
+import json
 from typing import Generator
 
 import pytest
@@ -243,3 +245,183 @@ def test_download_pdf_uses_saved_template_id(client: TestClient, seeded_user_and
     assert download_res.status_code == 200
     assert captured["template_id"] == "template_2"
     assert captured["data"]["experience"][0]["achievements"]
+
+
+def test_download_normalization_preserves_experience_bullet_fallbacks():
+    from app.routes import resumes as resumes_route
+
+    raw = {
+        "personalInfo": {"fullName": "Resume Tester", "email": "resume@example.com"},
+        "professionalSummary": "Backend engineer focused on exports.",
+        "skills": ["Python", "FastAPI"],
+        "experience": [
+            {
+                "jobTitle": "Direct Bullet Engineer",
+                "company": "Acme",
+                "bullets": ["Kept direct optimized bullet."],
+            },
+            {
+                "jobTitle": "Responsibilities Engineer",
+                "company": "Beta",
+                "responsibilities": ["Preserved responsibilities fallback."],
+            },
+            {
+                "jobTitle": "Description Engineer",
+                "company": "Gamma",
+                "description": "- Split PDF export details\n- Split DOCX export details",
+            },
+            {
+                "jobTitle": "Original Resume Engineer",
+                "company": "Delta",
+                "projects": [{"name": "Legacy Resume Parser"}],
+            },
+        ],
+        "parsed_resume": {
+            "experience": [
+                {"title": "Other", "company": "Other", "bullets": ["Other bullet"]},
+                {"title": "Original Resume Engineer", "company": "Delta", "bullets": ["Recovered original parsed bullet."]},
+            ]
+        },
+    }
+
+    data = resumes_route._normalize_data(raw)
+
+    assert data["experience"][0]["achievements"] == ["Kept direct optimized bullet."]
+    assert data["experience"][1]["achievements"] == ["Preserved responsibilities fallback."]
+    assert data["experience"][2]["achievements"] == [
+        "Split PDF export details",
+        "Split DOCX export details",
+    ]
+    assert data["experience"][3]["projects"][0]["name"] == "Legacy Resume Parser"
+    assert data["experience"][3]["achievements"] == ["Recovered original parsed bullet."]
+
+
+def test_download_exports_use_preview_bullets_for_pdf_docx_and_filename(
+    client: TestClient,
+    seeded_user_and_resume,
+    monkeypatch,
+):
+    _, resume_id = seeded_user_and_resume
+    from app.routes import resumes as resumes_route
+
+    payload = {
+        "analysis": {},
+        "optimized": {
+            "job_title": "Senior Backend Engineer",
+            "experience": [
+                {
+                    "title": "Backend Engineer",
+                    "company": "Acme Corp",
+                    "projects": [{"name": "Billing Platform"}],
+                }
+            ],
+        },
+        "personalInfo": {
+            "fullName": "Resume Tester",
+            "email": "resume-contract@example.com",
+            "phone": "+1 (555) 0100",
+            "location": "Remote",
+        },
+        "professionalSummary": "Backend engineer focused on API platforms.",
+        "skills": ["Python", "FastAPI"],
+        "experience": [
+            {
+                "jobTitle": "Backend Engineer",
+                "company": "Acme Corp",
+                "location": "Remote",
+                "startDate": "Jan 2022",
+                "endDate": "Mar 2025",
+                "bullets": [
+                    "Designed and shipped billing APIs used by 20+ internal services.",
+                    "Reduced payment reconciliation time by automating daily ledger checks.",
+                ],
+            }
+        ],
+        "education": [],
+        "projects": [],
+        "certifications": [],
+        "templateId": "template_1",
+        "job_title": "Senior Backend Engineer",
+    }
+
+    db = TestingSessionLocal()
+    try:
+        resume = db.get(Resume, resume_id)
+        resume.optimized_content = json.dumps(payload)
+        db.commit()
+    finally:
+        db.close()
+
+    captured = {}
+
+    def fake_build_pdf(template_id, data):
+        captured["pdf"] = {"template_id": template_id, "data": data}
+        return b"%PDF-1.4 test"
+
+    def fake_build_docx(template_id, data):
+        captured["docx"] = {"template_id": template_id, "data": data}
+        return b"docx-bytes"
+
+    monkeypatch.setattr(resumes_route.template_service, "build_pdf", fake_build_pdf)
+    monkeypatch.setattr(resumes_route.template_service, "build_docx", fake_build_docx)
+
+    pdf_res = client.get(f"/api/resumes/{resume_id}/download/pdf?templateId=template_1")
+    docx_res = client.get(f"/api/resumes/{resume_id}/download/docx?templateId=template_1")
+
+    assert pdf_res.status_code == 200
+    assert docx_res.status_code == 200
+    assert 'filename="Resume_Tester_Senior_Backend_Engineer.pdf"' in pdf_res.headers["content-disposition"]
+    assert 'filename="Resume_Tester_Senior_Backend_Engineer.docx"' in docx_res.headers["content-disposition"]
+    for export in ("pdf", "docx"):
+        assert captured[export]["template_id"] == "template_1"
+        exp = captured[export]["data"]["experience"][0]
+        assert exp["achievements"] == payload["experience"][0]["bullets"]
+        assert exp["projects"][0]["name"] == "Billing Platform"
+
+
+def test_classic_professional_pdf_docx_render_experience_bullets():
+    from docx import Document
+    from pypdf import PdfReader
+
+    from app.services import template_service
+
+    data = {
+        "full_name": "Resume Tester",
+        "role_title": "Senior Backend Engineer",
+        "contact": "resume-contract@example.com | Remote",
+        "summary": "Backend engineer focused on API platforms.",
+        "skills": ["Python", "FastAPI", "PostgreSQL"],
+        "technical_skills": ["Python", "FastAPI", "PostgreSQL"],
+        "professional_skills": [],
+        "experience": [
+            {
+                "title": "Backend Engineer",
+                "company": "Acme Corp",
+                "location": "Remote",
+                "duration": "Jan 2022 - Mar 2025",
+                "projects": [{"name": "Billing Platform"}],
+                "achievements": [
+                    "Scaled backend APIs for high-volume billing workflows.",
+                    "Reduced reconciliation time with automated ledger checks.",
+                ],
+            }
+        ],
+        "education": [{"degree": "B.Tech Computer Science", "institution": "State University", "year": "2020"}],
+        "projects": [],
+        "certifications": [],
+    }
+
+    pdf_bytes = template_service.build_pdf("template_1", data)
+    pdf_text = "\n".join(page.extract_text() or "" for page in PdfReader(io.BytesIO(pdf_bytes)).pages)
+
+    docx_bytes = template_service.build_docx("template_1", data)
+    doc = Document(io.BytesIO(docx_bytes))
+    docx_text = "\n".join(p.text for p in doc.paragraphs)
+
+    for text in (pdf_text, docx_text):
+        assert "Senior Backend Engineer" in text
+        assert "Technical Skills" in text
+        assert "Professional Experience" in text
+        assert "Billing Platform" in text
+        assert "Scaled backend APIs for high-volume billing workflows." in text
+        assert "Reduced reconciliation time with automated ledger checks." in text
