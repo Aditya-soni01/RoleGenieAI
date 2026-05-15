@@ -1043,23 +1043,35 @@ const Footer: React.FC<{ navigate: ReturnType<typeof useNavigate> }> = ({ naviga
     className="py-10 px-5 lg:px-8"
     style={{ borderTop: '1px solid rgba(39,54,71,0.4)' }}
   >
-    <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-5">
-      <div className="flex items-center gap-2.5">
-        <img
-          src="/brand/logo-lockup-dark.svg"
-          alt="RoleGenie"
-          className="brand-lockup-sm"
-        />
-        <span className="text-xs text-[#8da8c0] hidden sm:inline">· AI Career Copilot by Auronex</span>
+    <div className="max-w-6xl mx-auto">
+      <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-[#8da8c0] pb-5">
+        <Link to="/about-us" className="hover:text-[#d4e4fa] transition-colors">About Us</Link>
+        <Link to="/privacy-policy" className="hover:text-[#d4e4fa] transition-colors">Privacy Policy</Link>
+        <Link to="/terms-and-conditions" className="hover:text-[#d4e4fa] transition-colors">Terms & Conditions</Link>
+        <Link to="/refund-cancellation" className="hover:text-[#d4e4fa] transition-colors">Refund & Cancellation</Link>
+        <Link to="/contact-us" className="hover:text-[#d4e4fa] transition-colors">Contact Us</Link>
       </div>
 
-      <div className="flex items-center gap-5 text-xs text-[#8da8c0]">
-        <button onClick={() => navigate('/login')} className="hover:text-[#d4e4fa] transition-colors">Log In</button>
-        <button onClick={() => navigate('/login')} className="hover:text-[#d4e4fa] transition-colors">Sign Up Free</button>
-        <button onClick={() => navigate('/subscription')} className="hover:text-[#d4e4fa] transition-colors">Pricing</button>
-      </div>
+      <div
+        className="pt-5 border-t border-[#273647]/40 grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] items-center gap-4"
+      >
+        <div className="flex items-center justify-center md:justify-start gap-2.5">
+          <img
+            src="/brand/logo-lockup-dark.svg"
+            alt="RoleGenie"
+            className="brand-lockup-sm"
+          />
+          <span className="text-xs text-[#8da8c0] hidden lg:inline">· AI Career Copilot by Auronex</span>
+        </div>
 
-      <p className="text-xs text-[#8da8c0]/50">© 2025 RoleGenie. All rights reserved.</p>
+        <div className="flex items-center justify-center gap-6 text-xs text-[#8da8c0]">
+          <button onClick={() => navigate('/login')} className="hover:text-[#d4e4fa] transition-colors">Log In</button>
+          <button onClick={() => navigate('/login')} className="hover:text-[#d4e4fa] transition-colors">Sign Up Free</button>
+          <button onClick={() => navigate('/subscription')} className="hover:text-[#d4e4fa] transition-colors">Pricing</button>
+        </div>
+
+        <p className="text-xs text-[#8da8c0]/50 text-center md:text-right">© 2025 RoleGenie. All rights reserved.</p>
+      </div>
     </div>
   </footer>
 );
@@ -1099,3 +1111,4 @@ const LandingPage: React.FC = () => {
 };
 
 export default LandingPage;
+

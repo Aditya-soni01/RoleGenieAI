@@ -11,6 +11,11 @@ import ProfilePage from '@/pages/ProfilePage';
 import SettingsPage from '@/pages/SettingsPage';
 import SupportPage from '@/pages/SupportPage';
 import SubscriptionPage from '@/pages/SubscriptionPage';
+import AboutUsPage from '@/pages/AboutUsPage';
+import PrivacyPolicyPage from '@/pages/PrivacyPolicyPage';
+import TermsConditionsPage from '@/pages/TermsConditionsPage';
+import RefundCancellationPage from '@/pages/RefundCancellationPage';
+import ContactUsPage from '@/pages/ContactUsPage';
 import OnboardingTour from '@/components/OnboardingTour';
 import PageTracker from '@/components/analytics/PageTracker';
 import AdminLayout from '@/pages/admin/AdminLayout';
@@ -128,6 +133,11 @@ const App: React.FC = () => {
           <Route path="/" element={<PublicRoute><LandingPage /></PublicRoute>} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
+          <Route path="/about-us" element={<AboutUsPage />} />
+          <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
+          <Route path="/terms-and-conditions" element={<TermsConditionsPage />} />
+          <Route path="/refund-cancellation" element={<RefundCancellationPage />} />
+          <Route path="/contact-us" element={<ContactUsPage />} />
           <Route path="/admin/login" element={<AdminPublicRoute><AdminLoginPage /></AdminPublicRoute>} />
 
           {/* Protected app routes */}

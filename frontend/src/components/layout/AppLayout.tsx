@@ -126,6 +126,13 @@ const AppLayout: React.FC = () => {
               Upgrade to Pro
             </button>
           </div>
+          <div className="px-1 pb-2 flex flex-wrap gap-x-3 gap-y-1">
+            <Link to="/about-us" onClick={() => setSidebarOpen(false)} className="text-[11px] theme-text-subtle hover:text-[var(--app-text)] transition-colors">About</Link>
+            <Link to="/privacy-policy" onClick={() => setSidebarOpen(false)} className="text-[11px] theme-text-subtle hover:text-[var(--app-text)] transition-colors">Privacy</Link>
+            <Link to="/terms-and-conditions" onClick={() => setSidebarOpen(false)} className="text-[11px] theme-text-subtle hover:text-[var(--app-text)] transition-colors">Terms</Link>
+            <Link to="/refund-cancellation" onClick={() => setSidebarOpen(false)} className="text-[11px] theme-text-subtle hover:text-[var(--app-text)] transition-colors">Refund</Link>
+            <Link to="/contact-us" onClick={() => setSidebarOpen(false)} className="text-[11px] theme-text-subtle hover:text-[var(--app-text)] transition-colors">Contact</Link>
+          </div>
         </div>
       </aside>
 
